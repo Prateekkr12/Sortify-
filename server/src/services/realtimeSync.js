@@ -105,12 +105,23 @@ const syncNewEmails = async (gmail, user, lastSyncTime) => {
         const headers = messageData.data.payload.headers
         const getHeader = (name) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value
 
-        // Classify the email automatically
+        // Classify the email automatically using rule-based classification
         const subject = getHeader('Subject') || 'No Subject'
         const snippet = messageData.data.snippet || ''
         const body = messageData.data.payload.body?.data || ''
+        const from = getHeader('From') || 'Unknown Sender'
+        const labels = messageData.data.labelIds || []
         
-        const classification = await classifyEmail(subject, snippet, body, user._id.toString())
+        const classification = await classifyEmail(
+          subject, 
+          snippet, 
+          body, 
+          user._id.toString(),
+          {
+            from,
+            labels
+          }
+        )
 
         const emailData = {
           userId: user._id,
@@ -118,17 +129,19 @@ const syncNewEmails = async (gmail, user, lastSyncTime) => {
           messageId: message.id,
           threadId: messageData.data.threadId || null,
           subject,
-          from: getHeader('From') || 'Unknown Sender',
+          from,
           to: getHeader('To') || user.email,
           date: new Date(parseInt(messageData.data.internalDate)),
           snippet,
           body,
           isRead: !messageData.data.labelIds?.includes('UNREAD'),
-          labels: messageData.data.labelIds || [],
+          labels,
           category: classification.label,
           classification: {
             label: classification.label,
-            confidence: classification.confidence
+            confidence: classification.confidence,
+            model: classification.model || 'rule-based',
+            method: classification.method
           }
         }
 

@@ -3,6 +3,8 @@ import pLimit from 'p-limit'
 import Email from '../models/Email.js'
 import { classifyEmail } from './enhancedClassificationService.js'
 import axios from 'axios'
+import { clearAnalyticsCache } from '../routes/analytics.js'
+import { clearCategoryCache } from './categoryService.js'
 
 const GMAIL_SYNC_MAX_CONCURRENCY = parseInt(process.env.GMAIL_SYNC_MAX_CONCURRENCY) || 5
 const GMAIL_SYNC_BATCH_SIZE = 100
@@ -390,16 +392,16 @@ export const upsertEmail = async (user, emailData) => {
 }
 
 /**
- * Classify email using ML service and save classification
+ * Classify email using rule-based service and save classification
  * @param {Object} emailDoc - Email document
  * @returns {Promise<Object>} Updated email with classification
  */
 export const classifyAndSave = async (emailDoc) => {
   try {
-    // Use enhanced classification with full email data
+    // Use rule-based classification with full email data
     let classification
     try {
-      // Prepare comprehensive email data for enhanced classification
+      // Prepare comprehensive email data for rule-based classification
       const emailData = {
         subject: emailDoc.subject,
         body: emailDoc.body || emailDoc.text,
@@ -409,6 +411,7 @@ export const classifyAndSave = async (emailDoc) => {
         cc: emailDoc.cc,
         bcc: emailDoc.bcc,
         date: emailDoc.date,
+        labels: emailDoc.labels || [], // Include Gmail labels for label-based classification
         attachments: emailDoc.attachments || [],
         enhancedMetadata: emailDoc.enhancedMetadata || {}
       }
@@ -421,40 +424,41 @@ export const classifyAndSave = async (emailDoc) => {
         emailData
       )
     } catch (localError) {
-      console.log('Enhanced classification failed, using fallback:', localError.message)
+      console.log('Rule-based classification failed, using fallback:', localError.message)
       classification = {
         label: 'Other',
-        confidence: 0.5,
-        scores: {},
+        confidence: 0.3,
         model: 'fallback'
       }
     }
     
-    // Prepare update data with enhanced features
+    // Prepare update data with rule-based classification
     const updateData = {
       category: classification.label,
       classification: {
         label: classification.label,
         confidence: classification.confidence,
-        modelVersion: '2.0.0-ensemble',
+        modelVersion: '3.0.0-rule-based',
         classifiedAt: new Date(),
-        model: classification.model || 'enhanced',
-        reason: 'Enhanced ensemble classification',
-        ensembleScores: classification.ensembleScores || {},
-        featureContributions: classification.featureContributions || {}
+        model: classification.model || 'rule-based',
+        method: classification.method || 'rule-based',
+        phase: classification.phase || 1,
+        reason: 'Rule-based classification (label + keyword)',
+        matchedKeywords: classification.matchedKeywords || [],
+        matchedPhrases: classification.matchedPhrases || [],
+        matchedPattern: classification.matchedPattern,
+        matchedValue: classification.matchedValue,
+        matchedLabel: classification.matchedLabel,
+        mappingId: classification.mappingId
       }
     }
     
-    // Add extracted features and enhanced metadata if available
-    if (classification.extractedFeatures) {
-      updateData.extractedFeatures = classification.extractedFeatures
+    // Add enhanced metadata if available
+    if (emailDoc.enhancedMetadata) {
+      updateData.enhancedMetadata = emailDoc.enhancedMetadata
     }
     
-    if (classification.enhancedMetadata) {
-      updateData.enhancedMetadata = classification.enhancedMetadata
-    }
-    
-    // Update email with enhanced classification
+    // Update email with rule-based classification
     const updatedEmail = await Email.findByIdAndUpdate(
       emailDoc._id,
       updateData,
@@ -561,14 +565,8 @@ export const fullSync = async (user) => {
         // Upsert email
         const savedEmail = await upsertEmail(user, emailData)
         
-        // Import and trigger classification pipeline
-        const { classifyAndCache } = await import('./emailClassificationPipeline.js')
-        
-        // Classify immediately and cache (this also removes full body)
-        const classificationResult = await classifyAndCache(savedEmail, user._id)
-        const classifiedEmail = classificationResult.success 
-          ? { ...savedEmail, category: classificationResult.classification.label }
-          : savedEmail
+        // Classify using rule-based service
+        const classifiedEmail = await classifyAndSave(savedEmail)
         
         return {
           success: true,
@@ -611,6 +609,13 @@ export const fullSync = async (user) => {
     console.log(`   Failed: ${failed.length}`)
     console.log(`   Classified: ${classified.length}`)
     console.log(`   Categories:`, categoryBreakdown)
+
+    // Clear analytics and category cache after sync to ensure fresh data
+    if (newEmails.length > 0) {
+      clearAnalyticsCache(user._id.toString())
+      clearCategoryCache(user._id.toString())
+      console.log(`🗑️ Cleared analytics cache after sync (${newEmails.length} new emails)`)
+    }
 
     return {
       success: true,
@@ -810,9 +815,20 @@ export const syncEmailThumbnails = async (user, options = {}) => {
           // Extract basic email data
           const subject = getHeader('Subject') || 'No Subject'
           const snippet = message.data.snippet || ''
+          const from = getHeader('From') || 'Unknown Sender'
+          const labels = message.data.labelIds || []
           
-          // Classify the email automatically
-          const classification = await classifyEmail(subject, snippet, '')
+          // Classify the email automatically using rule-based classification with labels
+          const classification = await classifyEmail(
+            subject, 
+            snippet, 
+            '',  // No body for thumbnail sync
+            user._id.toString(),
+            {
+              from: from,
+              labels: labels
+            }
+          )
 
           const emailData = {
             userId: user._id,
@@ -820,16 +836,20 @@ export const syncEmailThumbnails = async (user, options = {}) => {
             messageId: messageId,
             threadId: message.data.threadId || null,
             subject,
-            from: getHeader('From') || 'Unknown Sender',
+            from: from,
             to: getHeader('To') || user.email,
             date: new Date(parseInt(message.data.internalDate)),
             snippet,
             isRead: !message.data.labelIds?.includes('UNREAD'),
-            labels: message.data.labelIds || [],
+            labels: labels,
             category: classification.label,
             classification: {
               label: classification.label,
-              confidence: classification.confidence
+              confidence: classification.confidence,
+              model: classification.model || 'rule-based',
+              method: classification.method || 'rule-based',
+              modelVersion: '3.0.0-rule-based',
+              classifiedAt: new Date()
             },
             isFullContentLoaded: false,
             fullContentLoadedAt: null,
@@ -889,6 +909,13 @@ export const syncEmailThumbnails = async (user, options = {}) => {
     console.log(`   Skipped: ${skippedCount}`)
     console.log(`   Classified: ${classifiedCount}`)
     console.log(`   Categories:`, categoryBreakdown)
+
+    // Clear analytics and category cache after sync to ensure fresh data
+    if (syncedCount > 0) {
+      clearAnalyticsCache(user._id.toString())
+      clearCategoryCache(user._id.toString())
+      console.log(`🗑️ Cleared analytics cache after thumbnail sync (${syncedCount} emails synced)`)
+    }
 
     return {
       success: true,
@@ -1082,3 +1109,4 @@ export const fullHistoricalSync = async (user, options = {}) => {
     throw error
   }
 }
+

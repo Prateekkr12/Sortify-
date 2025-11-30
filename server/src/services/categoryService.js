@@ -10,8 +10,9 @@ const toObjectId = (userId) => {
 }
 
 // Cache for category data to improve performance
+// Reduced TTL for real-time accuracy - counts update within 30 seconds
 const categoryCache = new Map()
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const CACHE_TTL = 30 * 1000 // 30 seconds for real-time counts
 
 /**
  * Clear category cache for a specific user
@@ -58,21 +59,10 @@ export const getCategories = async (userId) => {
     // Filter to only active categories (matches previous analytics endpoint behavior)
     const categories = allCategories.filter(category => category.isActive !== false)
     
-    // OPTIMIZED: Get ALL email counts with a SINGLE aggregation query
-    const emailCounts = await Email.aggregate([
-      { 
-        $match: { 
-          userId: userIdObj,
-          isDeleted: false 
-        } 
-      },
-      { 
-        $group: { 
-          _id: '$category', 
-          count: { $sum: 1 } 
-        } 
-      }
-    ])
+    // Use unified count service for consistent counts with email list and analytics
+    // This ensures all endpoints use the exact same query structure
+    const { getAllCategoryCounts } = await import('./emailCountService.js')
+    const emailCounts = await getAllCategoryCounts(userIdStr)
 
     // Create a Map for O(1) lookups
     const countMap = new Map(

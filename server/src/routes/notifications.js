@@ -22,123 +22,84 @@ router.get('/', protect, asyncHandler(async (req, res) => {
       })
     }
 
-    console.log('Fetching notifications for user:', userId)
-
-    // Get notifications from database
     const userIdString = userId.toString()
-    console.log('Looking for notifications with userId:', { userIdString, userId })
+    console.log('Fetching notifications for user:', userIdString)
     
-    // Fetch notifications from database
+    // Optimized: Single query to get all non-archived notifications
+    // Use lean() for better performance and convert to plain objects
     let allNotifications = await Notification.find({
-      userId: { $in: [userIdString, userId] },
+      userId: userIdString,
       archived: false
-    }).sort({ timestamp: -1 })
-    
-    // Convert to plain objects for consistency
-    allNotifications = allNotifications.map(n => n.toObject())
+    })
+    .sort({ timestamp: -1 })
+    .lean() // Use lean() for better performance
+    .limit(parseInt(limit) + parseInt(offset)) // Limit query results
     
     console.log('Found notifications for user:', allNotifications.length)
-    console.log('User notifications:', allNotifications.map(n => ({ id: n.id, userId: n.userId, type: n.type, title: n.title })))
 
-    // Check if user has any notifications, including archived ones, to avoid creating duplicate welcome notifications
-    const allUserNotifications = await Notification.find({
-      userId: { $in: [userIdString, userId] }
-    })
-    
-    // More strict check for welcome notification to prevent duplicates
-    const hasWelcomeNotification = allUserNotifications.some(n => 
-      n.title === 'Welcome to Sortify' && 
-      n.data?.welcome === true && 
-      (n.userId === userIdString || n.userId === userId)
-    )
-    
-    // If no notifications found for this user, check if there are sample notifications we can claim
+    // If no notifications, create welcome notification asynchronously (don't wait)
     if (allNotifications.length === 0) {
-      // Check if there are sample notifications we can assign to this user
-      const sampleNotifications = await Notification.find({
-        userId: 'sample-user-id',
-        archived: false
+      // Check for welcome notification in background (non-blocking)
+      Notification.findOne({
+        userId: userIdString,
+        title: 'Welcome to Sortify',
+        'data.welcome': true
       })
-      
-      if (sampleNotifications.length > 0) {
-        console.log(`Found ${sampleNotifications.length} sample notifications, assigning to user ${userIdString}`)
-        // Assign sample notifications to this user in database
-        await Notification.updateMany(
-          { userId: 'sample-user-id', archived: false },
-          { $set: { userId: userIdString } }
-        )
-        // Re-fetch notifications after assignment
-        allNotifications = await Notification.find({
-          userId: { $in: [userIdString, userId] },
-          archived: false
-        }).sort({ timestamp: -1 })
-        allNotifications = allNotifications.map(n => n.toObject())
-      } else if (!hasWelcomeNotification) {
-        console.log('No notifications found for user, creating welcome notification')
-        
-        // First, clean up any duplicate welcome notifications for this user
-        const duplicateWelcomeNotifications = await Notification.find({
-          userId: { $in: [userIdString, userId] },
-          title: 'Welcome to Sortify',
-          data: { welcome: true }
-        })
-        
-        if (duplicateWelcomeNotifications.length > 1) {
-          console.log(`Found ${duplicateWelcomeNotifications.length} duplicate welcome notifications, cleaning up`)
-          // Keep the most recent one, archive the rest
-          const sortedDuplicates = duplicateWelcomeNotifications.sort((a, b) => 
-            new Date(b.timestamp) - new Date(a.timestamp)
-          )
-          const toArchive = sortedDuplicates.slice(1) // Archive all except the first one
-          
-          for (const dup of toArchive) {
-            await Notification.findByIdAndUpdate(dup._id, {
-              $set: { archived: true, archivedAt: new Date().toISOString() }
-            })
-          }
+      .lean()
+      .then(existingWelcome => {
+        if (!existingWelcome) {
+          // Create welcome notification asynchronously
+          notificationService.sendPushNotification(userIdString, {
+            type: 'system',
+            title: 'Welcome to Sortify',
+            message: 'Your notification center is ready! You\'ll receive updates about your email management here.',
+            data: { welcome: true }
+          }).catch(err => {
+            console.error('Error creating welcome notification:', err)
+            // Don't throw - this is non-critical
+          })
         }
-        
-        const welcomeNotification = await notificationService.sendPushNotification(userIdString, {
-          type: 'system',
-          title: 'Welcome to Sortify',
-          message: 'Your notification center is ready! You\'ll receive updates about your email management here.',
-          data: { welcome: true }
-        })
-        
-        // Re-fetch from database to ensure the notification is properly stored
-        allNotifications = await Notification.find({
-          userId: { $in: [userIdString, userId] },
-          archived: false
-        }).sort({ timestamp: -1 })
-        allNotifications = allNotifications.map(n => n.toObject())
-      }
-      
-      console.log('After processing user notifications, found:', allNotifications.length)
+      })
+      .catch(err => {
+        console.error('Error checking for welcome notification:', err)
+        // Don't throw - this is non-critical
+      })
     }
 
+    // Apply type filter if specified
     let notifications = allNotifications
-
     if (type) {
       notifications = notifications.filter(n => n.type === type)
     }
 
-    const paginatedNotifications = notifications.slice(offset, offset + parseInt(limit))
+    // Apply pagination
+    const paginatedNotifications = notifications.slice(parseInt(offset), parseInt(offset) + parseInt(limit))
 
-    console.log(`Returning ${paginatedNotifications.length} notifications for user ${userId}`)
+    // Calculate unread count
+    const unreadCount = notifications.filter(n => !n.read).length
 
+    console.log(`Returning ${paginatedNotifications.length} notifications (${unreadCount} unread) for user ${userIdString}`)
+
+    // Always return success with data (even if empty)
     res.json({
       success: true,
       notifications: paginatedNotifications,
       total: notifications.length,
-      unread: notifications.filter(n => !n.read).length
+      unread: unreadCount
     })
 
   } catch (error) {
     console.error('Get notifications error:', error)
+    console.error('Error stack:', error.stack)
+    
+    // Return empty array on error instead of failing completely
     res.status(500).json({
       success: false,
       message: 'Failed to fetch notifications',
-      error: error.message
+      error: error.message,
+      notifications: [], // Return empty array so UI doesn't break
+      total: 0,
+      unread: 0
     })
   }
 }))
@@ -154,10 +115,10 @@ router.put('/:id/read', protect, asyncHandler(async (req, res) => {
 
     console.log('Mark as read request:', { id, userId, userIdString })
 
-    // Find notification in database with robust user ID matching
+    // Find notification in database - use string userId consistently
     let notification = await Notification.findOne({
       id: id,
-      userId: { $in: [userIdString, userId] },
+      userId: userIdString,  // Use string version consistently
       archived: false
     })
 
@@ -168,7 +129,7 @@ router.put('/:id/read', protect, asyncHandler(async (req, res) => {
         archived: false
       })
       
-      if (notification && notification.userId !== userIdString && notification.userId !== userId) {
+      if (notification && notification.userId !== userIdString) {
         console.log('Updating notification userId to match current user for mark as read operation')
         await Notification.findByIdAndUpdate(notification._id, {
           $set: { userId: userIdString }
@@ -181,7 +142,7 @@ router.put('/:id/read', protect, asyncHandler(async (req, res) => {
     if (!notification) {
       console.log('Notification not found by ID, checking for user unread notifications')
       notification = await Notification.findOne({
-        userId: { $in: [userIdString, userId] },
+        userId: userIdString,  // Use string version consistently
         archived: false,
         read: false
       }).sort({ timestamp: -1 })
@@ -193,7 +154,7 @@ router.put('/:id/read', protect, asyncHandler(async (req, res) => {
 
     if (!notification) {
       const availableNotifications = await Notification.find({
-        userId: { $in: [userIdString, userId] }
+        userId: userIdString  // Use string version consistently
       }).select('id userId title read archived').limit(10)
       
       return res.status(404).json({
@@ -258,7 +219,7 @@ router.put('/read-all', protect, asyncHandler(async (req, res) => {
     // Mark all user notifications as read in database (only non-archived ones)
     const result = await Notification.updateMany(
       {
-        userId: { $in: [userIdString, userId] },
+        userId: userIdString,  // Use string version consistently
         read: false,
         archived: false
       },
@@ -302,7 +263,7 @@ router.delete('/:id', protect, asyncHandler(async (req, res) => {
 
     const notification = await Notification.findOne({
       id: id,
-      userId: { $in: [userIdString, userId] },
+      userId: userIdString,  // Use string version consistently
       archived: false
     })
 
@@ -352,7 +313,7 @@ router.delete('/clear-all', protect, asyncHandler(async (req, res) => {
     // Mark all user notifications as archived in database instead of deleting them
     const result = await Notification.updateMany(
       {
-        userId: { $in: [userIdString, userId] },
+        userId: userIdString,  // Use string version consistently
         archived: false
       },
       {
@@ -390,6 +351,20 @@ router.delete('/clear-all', protect, asyncHandler(async (req, res) => {
 router.get('/preferences', protect, asyncHandler(async (req, res) => {
   try {
     const userId = req.user._id
+    
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required',
+        preferences: {
+          pushNotifications: true,
+          emailAlerts: false,
+          notificationTypes: ['new_email', 'classification', 'bulk_operation', 'sync_status', 'email_operation', 'profile_update', 'connection', 'category_management', 'performance', 'system', 'refinement_summary'],
+          quietHours: { start: '22:00', end: '08:00' }
+        }
+      })
+    }
+
     const preferences = notificationService.getUserPreferences(userId)
 
     res.json({
@@ -399,10 +374,15 @@ router.get('/preferences', protect, asyncHandler(async (req, res) => {
 
   } catch (error) {
     console.error('Get notification preferences error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch notification preferences',
-      error: error.message
+    // Return default preferences on error instead of failing
+    res.json({
+      success: true, // Still return success with defaults
+      preferences: {
+        pushNotifications: true,
+        emailAlerts: false,
+        notificationTypes: ['new_email', 'classification', 'bulk_operation', 'sync_status', 'email_operation', 'profile_update', 'connection', 'category_management', 'performance', 'system', 'refinement_summary'],
+        quietHours: { start: '22:00', end: '08:00' }
+      }
     })
   }
 }))
@@ -415,15 +395,31 @@ router.put('/preferences', protect, asyncHandler(async (req, res) => {
     const userId = req.user._id
     const preferences = req.body
 
-    // Validate preferences
-    const validTypes = ['new_email', 'classification', 'bulk_operation', 'sync_status', 'system']
-    if (preferences.notificationTypes) {
+    // Validate preferences - include all valid notification types
+    const validTypes = [
+      'new_email', 
+      'classification', 
+      'bulk_operation', 
+      'sync_status',
+      'email_operation',
+      'profile_update',
+      'connection',
+      'category_management',
+      'performance',
+      'system',
+      'login',
+      'auth',
+      'refinement_summary',
+      'info',
+      'test'
+    ]
+    
+    if (preferences.notificationTypes && Array.isArray(preferences.notificationTypes)) {
       const invalidTypes = preferences.notificationTypes.filter(type => !validTypes.includes(type))
       if (invalidTypes.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid notification types: ${invalidTypes.join(', ')}`
-        })
+        console.warn('Invalid notification types received:', invalidTypes)
+        // Don't fail - just filter out invalid types
+        preferences.notificationTypes = preferences.notificationTypes.filter(type => validTypes.includes(type))
       }
     }
 

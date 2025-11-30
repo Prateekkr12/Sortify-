@@ -281,130 +281,99 @@ const AnalyticsDashboard = () => {
               className="card-glass p-6"
             >
               <h3 className="text-lg font-semibold text-slate-800 mb-4">Email Distribution by Category</h3>
-              <ResponsiveContainer width="100%" height={450}>
+              <ResponsiveContainer width="100%" height={700}>
                 <PieChart>
                   <Pie
                     data={categoryData}
-                    cx="40%"
+                    cx="50%"
                     cy="50%"
-                    labelLine={({ cx, cy, midAngle, outerRadius, percent, index }) => {
+                    labelLine={false}
+                    label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index }) => {
                       if (!categoryData[index]) return null;
                       
                       const RADIAN = Math.PI / 180;
-                      const startRadius = outerRadius + 5;
-                      const startX = cx + startRadius * Math.cos(-midAngle * RADIAN);
-                      const startY = cy + startRadius * Math.sin(-midAngle * RADIAN);
+                      const isSmallSlice = percent < 0.05; // Less than 5%
                       
-                      // Distribute labels to different positions around container
-                      const totalItems = categoryData.length;
-                      const containerWidth = 600;
-                      const containerHeight = 450;
-                      const padding = 20;
+                      // For small slices, position label outside with more spacing
+                      // For large slices, position label inside
+                      const radius = isSmallSlice 
+                        ? outerRadius + 35  // More space outside for small slices
+                        : innerRadius + (outerRadius - innerRadius) * 0.5; // Inside for large slices
                       
-                      // Define positions: top-left, top-right, right, bottom-right, bottom-left, left
-                      const positions = [
-                        { x: padding + 50, y: padding + 30, anchor: 'start' }, // top-left
-                        { x: containerWidth - padding - 50, y: padding + 30, anchor: 'end' }, // top-right
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.35, anchor: 'end' }, // right-mid-top
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.55, anchor: 'end' }, // right-mid
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.75, anchor: 'end' }, // right-mid-bottom
-                        { x: containerWidth - padding - 50, y: containerHeight - padding - 30, anchor: 'end' }, // bottom-right
-                        { x: padding + 50, y: containerHeight - padding - 30, anchor: 'start' }, // bottom-left
-                        { x: padding + 50, y: containerHeight * 0.75, anchor: 'start' }, // left-mid-bottom
-                        { x: padding + 50, y: containerHeight * 0.55, anchor: 'start' }, // left-mid
-                        { x: padding + 50, y: containerHeight * 0.35, anchor: 'start' }, // left-mid-top
-                      ];
+                      const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                      const y = cy + radius * Math.sin(-midAngle * RADIAN);
                       
-                      // Assign position based on index
-                      const position = positions[index % positions.length];
-                      const endX = position.x;
-                      const endY = position.y;
+                      // Adjust text anchor based on position
+                      const textAnchor = x > cx ? 'start' : 'end';
+                      const labelColor = isSmallSlice ? '#1e293b' : 'white';
+                      const bgColor = isSmallSlice ? 'rgba(255,255,255,0.95)' : 'transparent';
+                      const borderRadius = isSmallSlice ? '6px' : '0';
                       
-                      // Create bent path with quadratic curve
-                      const bendX = startX + (endX - startX) * 0.5;
-                      const bendY = startY + (endY - startY) * 0.6;
-                      
-                      // Z-index pattern: 0, 4, 8, 12, etc.
-                      const zIndex = index * 4;
-                      
-                      return (
-                        <g style={{ zIndex: zIndex }}>
-                          <path
-                            d={`M ${startX},${startY} Q ${bendX},${bendY} ${endX},${endY}`}
-                            stroke="#64748b"
-                            strokeWidth="1.2"
-                            fill="none"
-                            style={{ 
-                              filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.1))',
-                              zIndex: zIndex
-                            }}
-                          />
-                          <circle 
-                            cx={endX} 
-                            cy={endY} 
-                            r="2.5" 
-                            fill="#64748b"
-                            style={{ zIndex: zIndex }}
-                          />
-                        </g>
-                      );
-                    }}
-                    label={({ cx, cy, midAngle, outerRadius, percent, index }) => {
-                      if (!categoryData[index]) return null;
-                      
-                      // Distribute labels to different positions around container
-                      const containerWidth = 600;
-                      const containerHeight = 450;
-                      const padding = 20;
-                      
-                      // Define positions matching labelLine positions
-                      const positions = [
-                        { x: padding + 50, y: padding + 30, anchor: 'start' }, // top-left
-                        { x: containerWidth - padding - 50, y: padding + 30, anchor: 'end' }, // top-right
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.35, anchor: 'end' }, // right-mid-top
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.55, anchor: 'end' }, // right-mid
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.75, anchor: 'end' }, // right-mid-bottom
-                        { x: containerWidth - padding - 50, y: containerHeight - padding - 30, anchor: 'end' }, // bottom-right
-                        { x: padding + 50, y: containerHeight - padding - 30, anchor: 'start' }, // bottom-left
-                        { x: padding + 50, y: containerHeight * 0.75, anchor: 'start' }, // left-mid-bottom
-                        { x: padding + 50, y: containerHeight * 0.55, anchor: 'start' }, // left-mid
-                        { x: padding + 50, y: containerHeight * 0.35, anchor: 'start' }, // left-mid-top
-                      ];
-                      
-                      // Assign position based on index
-                      const position = positions[index % positions.length];
-                      const labelX = position.x;
-                      const labelY = position.y;
-                      
-                      // Z-index pattern: 0, 4, 8, 12, etc.
-                      const zIndex = index * 4;
+                      // Calculate box dimensions based on text length
+                      const labelText = categoryData[index].label;
+                      const percentText = `${(percent * 100).toFixed(1)}%`;
+                      const boxWidth = Math.max(labelText.length * 7, 70);
+                      const boxHeight = 28;
 
                       return (
-                        <g style={{ zIndex: zIndex }}>
+                        <g>
+                          {isSmallSlice && (
+                            <rect
+                              x={x - (textAnchor === 'end' ? boxWidth : 0)}
+                              y={y - boxHeight / 2}
+                              width={boxWidth}
+                              height={boxHeight}
+                              fill={bgColor}
+                              rx={borderRadius}
+                              stroke="#e2e8f0"
+                              strokeWidth={1}
+                              style={{
+                                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))'
+                              }}
+                            />
+                          )}
                           <text 
-                            x={labelX} 
-                            y={labelY} 
-                            fill="#1e293b"
-                            textAnchor={position.anchor} 
+                            x={x} 
+                            y={y - 6} 
+                            fill={labelColor}
+                            textAnchor={textAnchor}
                             dominantBaseline="middle"
-                            fontSize="11"
-                            fontWeight="600"
+                            fontSize={isSmallSlice ? "10" : "12"}
+                            fontWeight="700"
                             style={{ 
-                              textShadow: '0 1px 2px rgba(255,255,255,0.8)',
-                              zIndex: zIndex
+                              textShadow: isSmallSlice 
+                                ? 'none' 
+                                : '0 2px 4px rgba(0,0,0,0.5), 0 0 8px rgba(0,0,0,0.3)',
+                              pointerEvents: 'none'
                             }}
                           >
-                            {`${categoryData[index].label} (${(percent * 100).toFixed(1)}%)`}
+                            {labelText}
+                            <tspan 
+                              x={x} 
+                              dy="12" 
+                              fontSize={isSmallSlice ? "9" : "10"} 
+                              fontWeight="600"
+                              fill={isSmallSlice ? "#64748b" : "rgba(255,255,255,0.9)"}
+                            >
+                              {percentText}
+                            </tspan>
                           </text>
                         </g>
                       );
                     }}
-                    outerRadius={70}
+                    outerRadius={200}
+                    innerRadius={80}
                     fill="#8884d8"
                     dataKey="count"
+                    paddingAngle={3}
                   >
                     {categoryData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={COLORS[index % COLORS.length]}
+                        stroke="#ffffff"
+                        strokeWidth={2.5}
+                      />
                     ))}
                   </Pie>
                   <Tooltip />

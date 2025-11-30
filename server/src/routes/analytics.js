@@ -5,10 +5,12 @@ import { sseAuth } from '../middleware/sseAuth.js'
 import { asyncHandler } from '../middleware/errorHandler.js'
 import { getCategoryCount } from '../services/categoryService.js'
 import { clearAdvancedAnalyticsCache } from './advancedAnalytics.js'
+import { getAllCategoryCounts, getTotalEmailCount } from '../services/emailCountService.js'
 
 // Analytics cache to reduce database load
+// Reduced TTL for real-time accuracy - counts update within 30 seconds
 const analyticsCache = new Map()
-const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
+const CACHE_TTL = 30 * 1000 // 30 seconds for real-time counts
 
 function getCachedData(key, ttl = CACHE_TTL) {
   const cached = analyticsCache.get(key)
@@ -52,17 +54,24 @@ const router = express.Router()
 // @access  Private
 router.get('/stats', protect, asyncHandler(async (req, res) => {
   try {
-    // Check cache first
+    // Check cache first (30 second TTL for real-time accuracy)
     const cacheKey = `stats_${req.user._id}`
     const cached = getCachedData(cacheKey)
     if (cached) {
       return res.json({ success: true, stats: cached })
     }
 
+    // Use unified count service for total email count
+    const totalEmails = await getTotalEmailCount(req.user._id.toString())
+
     const stats = await Email.aggregate([
       { $match: { 
         userId: req.user._id,
-        isDeleted: { $ne: true }
+        isDeleted: false,  // Exclude deleted emails for consistency with email list
+        $or: [
+          { provider: 'gmail' },  // Match email list endpoint default provider filter
+          { provider: { $exists: false } }  // Include emails without provider field (legacy emails)
+        ]
       } },
       {
         $group: {
@@ -128,7 +137,7 @@ router.get('/stats', protect, asyncHandler(async (req, res) => {
     const totalAvailableCategories = await getCategoryCount(req.user._id)
 
     const statsResponse = {
-      totalEmails: result.totalEmails,
+      totalEmails: totalEmails,  // Use unified count service for consistency
       categories: totalAvailableCategories, // Dynamic category count
       processedToday: result.processedToday,
       unreadCount: result.unreadCount,
@@ -165,14 +174,22 @@ router.get('/categories', protect, asyncHandler(async (req, res) => {
       return res.json({ success: true, data: cached })
     }
 
-    // OPTIMIZED: Use the optimized getCategories function which has its own caching
+    // Use unified count service for consistent counts with email list
+    const categoryCounts = await getAllCategoryCounts(req.user._id.toString())
+    
+    // Get category names from categoryService
     const { getCategories } = await import('../services/categoryService.js')
     const categories = await getCategories(req.user._id)
 
-    // Transform to analytics format
+    // Create a map of category counts from unified service
+    const countMap = new Map(
+      categoryCounts.map(item => [item._id, item.count])
+    )
+
+    // Transform to analytics format with real-time counts
     const categoryData = categories.map(cat => ({
       label: cat.name,
-      count: cat.count
+      count: countMap.get(cat.name) || 0  // Use unified count service result
     }))
 
     // Sort by count descending
@@ -199,21 +216,59 @@ router.get('/categories', protect, asyncHandler(async (req, res) => {
 // @access  Private
 router.get('/accuracy', protect, asyncHandler(async (req, res) => {
   try {
-    // Check if ML service is available
-    const ML_SERVICE_URL = process.env.MODEL_SERVICE_URL || 'http://localhost:8000'
-    let mlServiceAvailable = false
-    
-    try {
-      const response = await fetch(`${ML_SERVICE_URL}/health`, { timeout: 2000 })
-      mlServiceAvailable = response.ok
-    } catch (error) {
-      mlServiceAvailable = false
+    // Check cache first for accuracy data
+    const cacheKey = `accuracy_${req.user._id}`
+    const cached = getCachedData(cacheKey)
+    if (cached) {
+      return res.json({ success: true, data: cached })
     }
 
+    // Import TrainingSample to get real accuracy from user corrections
+    const TrainingSample = (await import('../models/TrainingSample.js')).default
+
+    // Get REAL accuracy from user corrections (if available)
+    const realAccuracyData = await TrainingSample.aggregate([
+      {
+        $match: {
+          userId: req.user._id,
+          source: 'user_correction', // Only use actual user corrections
+          trueLabel: { $exists: true },
+          predictedLabel: { $exists: true }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          correct: {
+            $sum: {
+              $cond: [{ $eq: ['$trueLabel', '$predictedLabel'] }, 1, 0]
+            }
+          },
+          categoryBreakdown: {
+            $push: {
+              category: '$trueLabel',
+              predicted: '$predictedLabel',
+              isCorrect: { $eq: ['$trueLabel', '$predictedLabel'] }
+            }
+          }
+        }
+      }
+    ])
+
+    const realAccuracy = realAccuracyData[0] || null
+    const hasRealData = realAccuracy && realAccuracy.total > 0
+
+    // Get accuracy data from rule-based classifications (stored in Email model)
     const accuracyData = await Email.aggregate([
       {
         $match: {
           userId: req.user._id,
+          isDeleted: false,  // Exclude deleted emails for consistency
+          $or: [
+            { provider: 'gmail' },  // Match email list endpoint default provider filter
+            { provider: { $exists: false } }  // Include emails without provider field (legacy emails)
+          ],
           'classification.confidence': { $exists: true }
         }
       },
@@ -260,64 +315,110 @@ router.get('/accuracy', protect, asyncHandler(async (req, res) => {
       accuracyBreakdown: [] 
     }
     
-    // Calculate realistic accuracy based on confidence levels
-    // High confidence emails are likely more accurate
-    const estimatedCorrect = result.highConfidence + (result.mediumConfidence * 0.75) + (result.lowConfidence * 0.4)
-    const overallAccuracy = result.total > 0 ? (estimatedCorrect / result.total) * 100 : 0
+    // Use REAL accuracy if available, otherwise estimate based on confidence
+    let overallAccuracy = 0
+    let correct = 0
+    let classificationType = 'estimated'
+    
+    if (hasRealData) {
+      // REAL accuracy from user corrections
+      overallAccuracy = realAccuracy.total > 0 
+        ? (realAccuracy.correct / realAccuracy.total) * 100 
+        : 0
+      correct = realAccuracy.correct
+      classificationType = 'real'
+    } else {
+      // ESTIMATED accuracy based on confidence levels
+      // High confidence emails are likely more accurate
+      const estimatedCorrect = result.highConfidence + (result.mediumConfidence * 0.75) + (result.lowConfidence * 0.4)
+      overallAccuracy = result.total > 0 ? (estimatedCorrect / result.total) * 100 : 0
+      correct = Math.round(estimatedCorrect)
+      classificationType = 'estimated'
+    }
 
     // Calculate accuracy by category
-    const categoryAccuracy = {}
-    result.accuracyBreakdown.forEach(item => {
-      if (!categoryAccuracy[item.category]) {
-        categoryAccuracy[item.category] = { 
-          correct: 0, 
-          total: 0, 
-          highConfidence: 0,
-          mediumConfidence: 0,
-          lowConfidence: 0
+    let accuracyBreakdown = []
+    
+    if (hasRealData && realAccuracy.categoryBreakdown) {
+      // Use REAL category accuracy from user corrections
+      const categoryAccuracy = {}
+      realAccuracy.categoryBreakdown.forEach(item => {
+        if (!categoryAccuracy[item.category]) {
+          categoryAccuracy[item.category] = { correct: 0, total: 0 }
         }
-      }
-      categoryAccuracy[item.category].total++
+        categoryAccuracy[item.category].total++
+        if (item.isCorrect) {
+          categoryAccuracy[item.category].correct++
+        }
+      })
       
-      // Estimate correctness based on confidence
-      if (item.confidence >= 0.7) {
-        categoryAccuracy[item.category].highConfidence++
-        categoryAccuracy[item.category].correct += 1.0
-      } else if (item.confidence >= 0.4) {
-        categoryAccuracy[item.category].mediumConfidence++
-        categoryAccuracy[item.category].correct += 0.75
-      } else {
-        categoryAccuracy[item.category].lowConfidence++
-        categoryAccuracy[item.category].correct += 0.4
-      }
-    })
+      accuracyBreakdown = Object.entries(categoryAccuracy).map(([category, data]) => ({
+        category,
+        correct: data.correct,
+        total: data.total,
+        accuracy: data.total > 0 ? Math.round((data.correct / data.total) * 10000) / 100 : 0
+      }))
+    } else {
+      // ESTIMATED category accuracy based on confidence
+      const categoryAccuracy = {}
+      result.accuracyBreakdown.forEach(item => {
+        if (!categoryAccuracy[item.category]) {
+          categoryAccuracy[item.category] = { 
+            correct: 0, 
+            total: 0, 
+            highConfidence: 0,
+            mediumConfidence: 0,
+            lowConfidence: 0
+          }
+        }
+        categoryAccuracy[item.category].total++
+        
+        // Estimate correctness based on confidence
+        if (item.confidence >= 0.7) {
+          categoryAccuracy[item.category].highConfidence++
+          categoryAccuracy[item.category].correct += 1.0
+        } else if (item.confidence >= 0.4) {
+          categoryAccuracy[item.category].mediumConfidence++
+          categoryAccuracy[item.category].correct += 0.75
+        } else {
+          categoryAccuracy[item.category].lowConfidence++
+          categoryAccuracy[item.category].correct += 0.4
+        }
+      })
 
-    const accuracyBreakdown = Object.entries(categoryAccuracy).map(([category, data]) => ({
-      category,
-      correct: Math.round(data.correct),
-      total: data.total,
-      accuracy: data.total > 0 ? Math.round((data.correct / data.total) * 10000) / 100 : 0,
+      accuracyBreakdown = Object.entries(categoryAccuracy).map(([category, data]) => ({
+        category,
+        correct: Math.round(data.correct),
+        total: data.total,
+        accuracy: data.total > 0 ? Math.round((data.correct / data.total) * 10000) / 100 : 0,
+        confidenceDistribution: {
+          high: data.highConfidence,
+          medium: data.mediumConfidence,
+          low: data.lowConfidence
+        }
+      }))
+    }
+
+    const accuracyResponse = {
+      overallAccuracy: Math.round(overallAccuracy * 100) / 100,
+      correct: correct,
+      total: hasRealData ? realAccuracy.total : result.total,
+      classificationType: classificationType, // 'real' or 'estimated'
       confidenceDistribution: {
-        high: data.highConfidence,
-        medium: data.mediumConfidence,
-        low: data.lowConfidence
-      }
-    }))
+        high: result.highConfidence,
+        medium: result.mediumConfidence,
+        low: result.lowConfidence
+      },
+      accuracyBreakdown,
+      isRealAccuracy: hasRealData // Flag to indicate if this is real or estimated
+    }
+
+    // Cache the result
+    setCachedData(cacheKey, accuracyResponse)
 
     res.json({
       success: true,
-      data: {
-        overallAccuracy: Math.round(overallAccuracy * 100) / 100,
-        correct: Math.round(estimatedCorrect),
-        total: result.total,
-        mlServiceStatus: mlServiceAvailable ? 'available' : 'unavailable',
-        confidenceDistribution: {
-          high: result.highConfidence,
-          medium: result.mediumConfidence,
-          low: result.lowConfidence
-        },
-        accuracyBreakdown
-      }
+      data: accuracyResponse
     })
   } catch (error) {
     console.error('Error fetching accuracy data:', error)
@@ -340,9 +441,18 @@ router.get('/misclassifications', protect, asyncHandler(async (req, res) => {
     // This dramatically improves performance by filtering at the database level
     const misclassifications = await Email.find({
       userId: req.user._id,
+      isDeleted: false,  // Exclude deleted emails for consistency
       $or: [
-        { 'classification.confidence': { $lt: 0.6 } }, // Low confidence classifications
-        { 'classification.phase1.label': { $exists: true, $ne: '$category' } } // Phase 1 and category mismatch
+        { provider: 'gmail' },  // Match email list endpoint default provider filter
+        { provider: { $exists: false } }  // Include emails without provider field (legacy emails)
+      ],
+      $and: [
+        {
+          $or: [
+            { 'classification.confidence': { $lt: 0.6 } }, // Low confidence classifications
+            { 'classification.phase1.label': { $exists: true, $ne: '$category' } } // Phase 1 and category mismatch
+          ]
+        }
       ]
     })
     .select('subject from date category classification labels')
@@ -369,7 +479,14 @@ router.get('/misclassifications', protect, asyncHandler(async (req, res) => {
 // @access  Private
 router.get('/performance', protect, asyncHandler(async (req, res) => {
   const performanceData = await Email.aggregate([
-    { $match: { userId: req.user._id } },
+    { $match: { 
+      userId: req.user._id,
+      isDeleted: false,  // Exclude deleted emails for consistency
+      $or: [
+        { provider: 'gmail' },  // Match email list endpoint default provider filter
+        { provider: { $exists: false } }  // Include emails without provider field (legacy emails)
+      ]
+    } },
     {
       $group: {
         _id: {

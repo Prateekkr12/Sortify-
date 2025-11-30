@@ -6,6 +6,7 @@
 import mongoose from 'mongoose'
 import Email from '../models/Email.js'
 import Category from '../models/Category.js'
+import { getCategoryEmailCount } from './emailCountService.js'
 
 /**
  * Get analytics for all categories of a user
@@ -61,20 +62,20 @@ export const getCategoryStats = async (userId, categoryName) => {
       recentEmails,
       timeDistribution
     ] = await Promise.all([
-      // Total emails in category
-      Email.countDocuments({
-        userId: new mongoose.Types.ObjectId(userId),
-        category: categoryName,
-        isDeleted: false
-      }),
+      // Total emails in category - use unified count service for consistency
+      getCategoryEmailCount(userId, categoryName),
 
-      // Confidence statistics
+      // Confidence statistics - add provider filter to match email list
       Email.aggregate([
         {
           $match: {
             userId: new mongoose.Types.ObjectId(userId),
             category: categoryName,
             isDeleted: false,
+            $or: [
+              { provider: 'gmail' },
+              { provider: { $exists: false } }
+            ],
             'classification.confidence': { $exists: true }
           }
         },
@@ -92,21 +93,29 @@ export const getCategoryStats = async (userId, categoryName) => {
         }
       ]),
 
-      // Recent email activity (last 30 days)
+      // Recent email activity (last 30 days) - add provider filter
       Email.countDocuments({
         userId: new mongoose.Types.ObjectId(userId),
         category: categoryName,
         isDeleted: false,
+        $or: [
+          { provider: 'gmail' },
+          { provider: { $exists: false } }
+        ],
         createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
       }),
 
-      // Time distribution (emails by hour)
+      // Time distribution (emails by hour) - add provider filter
       Email.aggregate([
         {
           $match: {
             userId: new mongoose.Types.ObjectId(userId),
             category: categoryName,
-            isDeleted: false
+            isDeleted: false,
+            $or: [
+              { provider: 'gmail' },
+              { provider: { $exists: false } }
+            ]
           }
         },
         {
@@ -275,6 +284,10 @@ export const getCategoryPerformanceTrend = async (userId, categoryName, days = 7
           userId: new mongoose.Types.ObjectId(userId),
           category: categoryName,
           isDeleted: false,
+          $or: [
+            { provider: 'gmail' },
+            { provider: { $exists: false } }
+          ],
           createdAt: { $gte: startDate }
         }
       },

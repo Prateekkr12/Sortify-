@@ -19,7 +19,8 @@ import { classifyEmail } from '../services/classificationService.js'
 import notificationService from '../services/notificationService.js'
 import { extractPatternsForCategory } from '../services/patternExtractionService.js'
 import { startReclassificationJob } from '../services/emailReclassificationService.js'
-import mlCategorySync, { syncCategoryToML, trainCategoryInML, removeCategoryFromML } from '../services/mlCategorySync.js'
+// ML service imports disabled - using rule-based classification only
+// import mlCategorySync, { syncCategoryToML, trainCategoryInML, removeCategoryFromML } from '../services/mlCategorySync.js'
 import { processNewCategoryWithFeatures, estimateReclassificationTime } from '../services/categoryFeatureService.js'
 import { schedulePhase2AfterPhase1 } from '../services/backgroundJobScheduler.js'
 import { clearAnalyticsCache } from './analytics.js'
@@ -529,14 +530,14 @@ router.delete('/categories/:id', protect, asyncHandler(async (req, res) => {
       })
     }
 
-    // Remove category from ML service first
-    try {
-      console.log(`🔄 Removing category "${existingCategory.name}" from ML service...`)
-      await removeCategoryFromML(existingCategory.name)
-      console.log(`✅ Category "${existingCategory.name}" removed from ML service`)
-    } catch (mlError) {
-      console.warn(`⚠️ Failed to remove category "${existingCategory.name}" from ML service:`, mlError.message)
-    }
+    // ML service removal disabled - using rule-based classification only
+    // try {
+    //   console.log(`🔄 Removing category "${existingCategory.name}" from ML service...`)
+    //   await removeCategoryFromML(existingCategory.name)
+    //   console.log(`✅ Category "${existingCategory.name}" removed from ML service`)
+    // } catch (mlError) {
+    //   console.warn(`⚠️ Failed to remove category "${existingCategory.name}" from ML service:`, mlError.message)
+    // }
 
     // The service will handle the deletion logic including moving emails to "Other"
     const deletedCategory = await serviceDeleteCategory(userId, id)
@@ -646,12 +647,12 @@ router.post('/categories/from-template/:templateName', protect, asyncHandler(asy
     // Create category from template
     const category = await Category.createFromTemplate(userId, templateName, template)
 
-    // Sync to ML service
-    try {
-      await mlCategorySync.syncCategoryToML(category)
-    } catch (mlError) {
-      console.warn('Failed to sync category to ML service:', mlError.message)
-    }
+    // ML service sync disabled - using rule-based classification only
+    // try {
+    //   await mlCategorySync.syncCategoryToML(category)
+    // } catch (mlError) {
+    //   console.warn('Failed to sync category to ML service:', mlError.message)
+    // }
 
     // Start reclassification job
     const reclassificationJob = await startReclassificationJob(

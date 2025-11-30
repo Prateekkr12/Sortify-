@@ -214,74 +214,40 @@ const countKeywords = (text, keywords) => {
 }
 
 /**
- * Enhanced email classification with two-phase approach
- * Phase 1: Fast rule-based (immediate)
- * Phase 2: ML-based refinement (background)
+ * Enhanced email classification using rule-based system (label + keyword)
+ * Replaces ML-based classification with label and keyword matching
  */
 export const classifyEmail = async (subject, snippet, body, userId = null, emailData = {}) => {
   try {
-    // Check if email has cached classification from trained model
-    if (emailData.classification && 
-        emailData.classification.label && 
-        emailData.classification.model === 'distilbert-trained' &&
-        emailData.classification.confidence > 0.6) {
-      console.log(`💾 Using cached classification: ${emailData.classification.label} (${emailData.classification.confidence})`)
-      return {
-        label: emailData.classification.label,
-        confidence: emailData.classification.confidence,
-        cached: true,
-        model: emailData.classification.model,
-        classifiedAt: emailData.classification.classifiedAt
-      }
-    }
-
-    // If email needs classification and has full body, use it
-    if (emailData.needsClassification && emailData.fullBody) {
-      console.log('🤖 Email has full body, using trained model...')
-      const { classifyAndCache } = await import('./emailClassificationPipeline.js')
-      const result = await classifyAndCache(emailData, userId)
-      if (result.success) {
-        return {
-          label: result.classification.label,
-          confidence: result.classification.confidence,
-          model: result.classification.model,
-          cached: false
-        }
-      }
-    }
-
-    // Import Phase 1 and job queue services
-    const { classifyEmailPhase1 } = await import('./phase1ClassificationService.js')
-    const { queuePhase2Classification } = await import('./classificationJobQueue.js')
+    // Use rule-based classification service
+    const ruleBasedModule = await import('./ruleBasedClassificationService.js')
+    const ruleBasedClassify = ruleBasedModule.classifyEmail
     
-    // Phase 1: Fast rule-based classification (synchronous)
-    console.log('⚡ Phase 1: Starting fast classification...')
-    const phase1Result = await classifyEmailPhase1({
+    // Prepare email data with labels if available
+    const fullEmailData = {
       subject,
-      from: emailData.from,
       snippet,
-      body
-    }, userId)
-    
-    console.log(`⚡ Phase 1: Complete - ${phase1Result.label} (${phase1Result.confidence}) via ${phase1Result.method}`)
-    
-    // Queue Phase 2 for background processing if emailId provided
-    if (emailData.emailId) {
-      console.log(`📋 Queueing Phase 2 for email ${emailData.emailId}`)
-      queuePhase2Classification(emailData.emailId, userId)
+      body,
+      from: emailData.from || '',
+      labels: emailData.labels || []
     }
     
-    // Return Phase 1 result immediately
+    // Classify using rule-based service
+    const result = await ruleBasedClassify(fullEmailData, userId)
+    
     return {
-      label: phase1Result.label,
-      confidence: phase1Result.confidence,
-      phase: 1,
-      method: phase1Result.method,
-      matchedPattern: phase1Result.matchedPattern,
-      matchedValue: phase1Result.matchedValue,
-      matchedKeywords: phase1Result.matchedKeywords,
-      phase2Queued: !!emailData.emailId,
-      model: 'phase1-rule-based'
+      label: result.label,
+      confidence: result.confidence,
+      method: result.method,
+      model: result.model || 'rule-based',
+      phase: result.phase || 1,
+      matchedKeywords: result.matchedKeywords,
+      matchedPhrases: result.matchedPhrases,
+      matchedPattern: result.matchedPattern,
+      matchedValue: result.matchedValue,
+      matchedLabel: result.matchedLabel,
+      mappingId: result.mappingId,
+      keywordScore: result.keywordScore
     }
     
   } catch (error) {

@@ -15,7 +15,6 @@ const SuperAnalyticsDashboard = () => {
   // State from AnalyticsDashboard
   const [categoryData, setCategoryData] = useState([])
   const [accuracyData, setAccuracyData] = useState({})
-  const [misclassifications, setMisclassifications] = useState([])
   
   // State from AdvancedAnalytics
   const [analytics, setAnalytics] = useState({
@@ -50,17 +49,15 @@ const SuperAnalyticsDashboard = () => {
       }
       
       // Load data from both services - analyze all emails by default
-      const [categories, accuracy, misclassificationsData, advancedAnalytics] = await Promise.all([
+      const [categories, accuracy, advancedAnalytics] = await Promise.all([
         analyticsService.getCategoryCounts(),
         analyticsService.getClassificationAccuracy(),
-        analyticsService.getMisclassifications(10000), // Remove the 50 limit to get all emails
         api.get(`/analytics/advanced?range=${timeRange}&category=${selectedCategory}`)
       ])
 
       // Safely handle API responses
       setCategoryData(Array.isArray(categories?.data) ? categories.data : [])
       setAccuracyData(typeof accuracy?.data === 'object' && accuracy.data ? accuracy.data : {})
-      setMisclassifications(Array.isArray(misclassificationsData?.data) ? misclassificationsData.data : [])
       setAnalytics(typeof advancedAnalytics?.data === 'object' && advancedAnalytics.data ? advancedAnalytics.data : {})
       
       if (isRefresh) {
@@ -272,16 +269,6 @@ const SuperAnalyticsDashboard = () => {
           >
             Top Senders
           </button>
-          <button 
-            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${
-              activeTab === 'misclassifications' 
-                ? 'bg-blue-500 text-white shadow-lg' 
-                : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100/50'
-            }`}
-            onClick={() => setActiveTab('misclassifications')}
-          >
-            Misclassifications
-          </button>
         </div>
       </div>
 
@@ -336,7 +323,9 @@ const SuperAnalyticsDashboard = () => {
                 <div>
                   <p className="text-sm font-medium text-slate-600 mb-1">Accuracy</p>
                   <p className="text-3xl font-bold text-slate-800">{((analytics.classificationAccuracy || accuracyData.overallAccuracy || 0) * 100).toFixed(1)}%</p>
-                  <p className="text-xs text-slate-500 mt-1">ML Classification</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {accuracyData.isRealAccuracy ? 'Real (from corrections)' : 'Estimated (from confidence)'}
+                  </p>
                 </div>
                 <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl flex items-center justify-center">
                   <ModernIcon type="target" size={24} color="white" />
@@ -375,130 +364,99 @@ const SuperAnalyticsDashboard = () => {
                 <ModernIcon type="chart" size={20} color="#3b82f6" />
                 Email Distribution by Category
               </h3>
-              <ResponsiveContainer width="100%" height={450}>
+              <ResponsiveContainer width="100%" height={700}>
                 <PieChart>
                   <Pie
                     data={categoryData}
-                    cx="40%"
+                    cx="50%"
                     cy="50%"
-                    labelLine={({ cx, cy, midAngle, outerRadius, percent, index }) => {
+                    labelLine={false}
+                    label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, index }) => {
                       if (!categoryData[index]) return null;
                       
                       const RADIAN = Math.PI / 180;
-                      const startRadius = outerRadius + 5;
-                      const startX = cx + startRadius * Math.cos(-midAngle * RADIAN);
-                      const startY = cy + startRadius * Math.sin(-midAngle * RADIAN);
+                      const isSmallSlice = percent < 0.05; // Less than 5%
                       
-                      // Distribute labels to different positions around container
-                      const totalItems = categoryData.length;
-                      const containerWidth = 600;
-                      const containerHeight = 450;
-                      const padding = 20;
+                      // For small slices, position label outside with more spacing
+                      // For large slices, position label inside
+                      const radius = isSmallSlice 
+                        ? outerRadius + 35  // More space outside for small slices
+                        : innerRadius + (outerRadius - innerRadius) * 0.5; // Inside for large slices
                       
-                      // Define positions: top-left, top-right, right, bottom-right, bottom-left, left
-                      const positions = [
-                        { x: padding + 50, y: padding + 30, anchor: 'start' }, // top-left
-                        { x: containerWidth - padding - 50, y: padding + 30, anchor: 'end' }, // top-right
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.35, anchor: 'end' }, // right-mid-top
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.55, anchor: 'end' }, // right-mid
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.75, anchor: 'end' }, // right-mid-bottom
-                        { x: containerWidth - padding - 50, y: containerHeight - padding - 30, anchor: 'end' }, // bottom-right
-                        { x: padding + 50, y: containerHeight - padding - 30, anchor: 'start' }, // bottom-left
-                        { x: padding + 50, y: containerHeight * 0.75, anchor: 'start' }, // left-mid-bottom
-                        { x: padding + 50, y: containerHeight * 0.55, anchor: 'start' }, // left-mid
-                        { x: padding + 50, y: containerHeight * 0.35, anchor: 'start' }, // left-mid-top
-                      ];
+                      const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                      const y = cy + radius * Math.sin(-midAngle * RADIAN);
                       
-                      // Assign position based on index
-                      const position = positions[index % positions.length];
-                      const endX = position.x;
-                      const endY = position.y;
+                      // Adjust text anchor based on position
+                      const textAnchor = x > cx ? 'start' : 'end';
+                      const labelColor = isSmallSlice ? '#1e293b' : 'white';
+                      const bgColor = isSmallSlice ? 'rgba(255,255,255,0.95)' : 'transparent';
+                      const borderRadius = isSmallSlice ? '6px' : '0';
                       
-                      // Create bent path with quadratic curve
-                      const bendX = startX + (endX - startX) * 0.5;
-                      const bendY = startY + (endY - startY) * 0.6;
-                      
-                      // Z-index pattern: 0, 4, 8, 12, etc.
-                      const zIndex = index * 4;
-                      
-                      return (
-                        <g style={{ zIndex: zIndex }}>
-                          <path
-                            d={`M ${startX},${startY} Q ${bendX},${bendY} ${endX},${endY}`}
-                            stroke="#64748b"
-                            strokeWidth="1.2"
-                            fill="none"
-                            style={{ 
-                              filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.1))',
-                              zIndex: zIndex
-                            }}
-                          />
-                          <circle 
-                            cx={endX} 
-                            cy={endY} 
-                            r="2.5" 
-                            fill="#64748b"
-                            style={{ zIndex: zIndex }}
-                          />
-                        </g>
-                      );
-                    }}
-                    label={({ cx, cy, midAngle, outerRadius, percent, index }) => {
-                      if (!categoryData[index]) return null;
-                      
-                      // Distribute labels to different positions around container
-                      const containerWidth = 600;
-                      const containerHeight = 450;
-                      const padding = 20;
-                      
-                      // Define positions matching labelLine positions
-                      const positions = [
-                        { x: padding + 50, y: padding + 30, anchor: 'start' }, // top-left
-                        { x: containerWidth - padding - 50, y: padding + 30, anchor: 'end' }, // top-right
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.35, anchor: 'end' }, // right-mid-top
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.55, anchor: 'end' }, // right-mid
-                        { x: containerWidth - padding - 50, y: containerHeight * 0.75, anchor: 'end' }, // right-mid-bottom
-                        { x: containerWidth - padding - 50, y: containerHeight - padding - 30, anchor: 'end' }, // bottom-right
-                        { x: padding + 50, y: containerHeight - padding - 30, anchor: 'start' }, // bottom-left
-                        { x: padding + 50, y: containerHeight * 0.75, anchor: 'start' }, // left-mid-bottom
-                        { x: padding + 50, y: containerHeight * 0.55, anchor: 'start' }, // left-mid
-                        { x: padding + 50, y: containerHeight * 0.35, anchor: 'start' }, // left-mid-top
-                      ];
-                      
-                      // Assign position based on index
-                      const position = positions[index % positions.length];
-                      const labelX = position.x;
-                      const labelY = position.y;
-                      
-                      // Z-index pattern: 0, 4, 8, 12, etc.
-                      const zIndex = index * 4;
+                      // Calculate box dimensions based on text length
+                      const labelText = categoryData[index].label;
+                      const percentText = `${(percent * 100).toFixed(1)}%`;
+                      const boxWidth = Math.max(labelText.length * 7, 70);
+                      const boxHeight = 28;
 
                       return (
-                        <g style={{ zIndex: zIndex }}>
+                        <g>
+                          {isSmallSlice && (
+                            <rect
+                              x={x - (textAnchor === 'end' ? boxWidth : 0)}
+                              y={y - boxHeight / 2}
+                              width={boxWidth}
+                              height={boxHeight}
+                              fill={bgColor}
+                              rx={borderRadius}
+                              stroke="#e2e8f0"
+                              strokeWidth={1}
+                              style={{
+                                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))'
+                              }}
+                            />
+                          )}
                           <text 
-                            x={labelX} 
-                            y={labelY} 
-                            fill="#1e293b"
-                            textAnchor={position.anchor} 
+                            x={x} 
+                            y={y - 6} 
+                            fill={labelColor}
+                            textAnchor={textAnchor}
                             dominantBaseline="middle"
-                            fontSize="11"
-                            fontWeight="600"
+                            fontSize={isSmallSlice ? "10" : "12"}
+                            fontWeight="700"
                             style={{ 
-                              textShadow: '0 1px 2px rgba(255,255,255,0.8)',
-                              zIndex: zIndex
+                              textShadow: isSmallSlice 
+                                ? 'none' 
+                                : '0 2px 4px rgba(0,0,0,0.5), 0 0 8px rgba(0,0,0,0.3)',
+                              pointerEvents: 'none'
                             }}
                           >
-                            {`${categoryData[index].label} (${(percent * 100).toFixed(1)}%)`}
+                            {labelText}
+                            <tspan 
+                              x={x} 
+                              dy="12" 
+                              fontSize={isSmallSlice ? "9" : "10"} 
+                              fontWeight="600"
+                              fill={isSmallSlice ? "#64748b" : "rgba(255,255,255,0.9)"}
+                            >
+                              {percentText}
+                            </tspan>
                           </text>
                         </g>
                       );
                     }}
-                    outerRadius={70}
+                    outerRadius={200}
+                    innerRadius={80}
                     fill="#8884d8"
                     dataKey="count"
+                    paddingAngle={3}
                   >
                     {categoryData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={COLORS[index % COLORS.length]}
+                        stroke="#ffffff"
+                        strokeWidth={2.5}
+                      />
                     ))}
                   </Pie>
                   <Tooltip 
@@ -547,8 +505,11 @@ const SuperAnalyticsDashboard = () => {
                 <ModernIcon type="chart" size={20} color="#10b981" />
                 Category Counts
               </h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={categoryData}>
+              <ResponsiveContainer width="100%" height={500}>
+                <BarChart 
+                  data={categoryData}
+                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.3)" />
                   <XAxis 
                     dataKey="label" 
@@ -556,12 +517,13 @@ const SuperAnalyticsDashboard = () => {
                     tick={{ fill: '#475569', fontSize: 12, fontWeight: 600 }}
                     angle={-15}
                     textAnchor="end"
-                    height={60}
+                    height={50}
                   />
                   <YAxis 
                     stroke="#475569" 
                     tick={{ fill: '#475569', fontSize: 12, fontWeight: 600 }}
                     tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(1)}K` : value}
+                    width={60}
                   />
                   <Tooltip 
                     contentStyle={{
@@ -648,6 +610,9 @@ const SuperAnalyticsDashboard = () => {
               <div className="text-center">
                 <div className="text-4xl font-bold text-slate-800 mb-2">{((analytics.classificationAccuracy || accuracyData.overallAccuracy || 0) * 100).toFixed(1)}%</div>
                 <p className="text-slate-600 font-medium">Overall Accuracy</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {accuracyData.isRealAccuracy ? '✓ Real data' : '⚠ Estimated'}
+                </p>
               </div>
               <div className="text-center">
                 <div className="text-4xl font-bold text-slate-800 mb-2">{accuracyData.correct || 0}</div>
@@ -743,75 +708,6 @@ const SuperAnalyticsDashboard = () => {
         </motion.div>
       )}
 
-      {/* Misclassifications Tab */}
-      {activeTab === 'misclassifications' && (
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="bg-gradient-to-br from-white/50 to-white/30 backdrop-blur-xl border border-white/30 rounded-2xl p-6 shadow-2xl shadow-blue-100/20"
-        >
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold text-slate-800 mb-2 flex items-center gap-2">
-              <ModernIcon type="alert" size={20} color="#ef4444" />
-              Recent Misclassifications
-            </h3>
-            <p className="text-slate-600">Emails where ML classification doesn't match manual labels</p>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-white/10">
-                  <th className="text-left py-3 text-slate-600 font-medium">Subject</th>
-                  <th className="text-left py-3 text-slate-600 font-medium">From</th>
-                  <th className="text-left py-3 text-slate-600 font-medium">Date</th>
-                  <th className="text-left py-3 text-slate-600 font-medium">ML Classification</th>
-                  <th className="text-left py-3 text-slate-600 font-medium">Manual Labels</th>
-                </tr>
-              </thead>
-              <tbody>
-                {misclassifications.map((email, index) => (
-                  <motion.tr
-                    key={index}
-                    initial={{ x: -20, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="border-b border-white/5 hover:bg-white/10 transition-colors"
-                  >
-                    <td className="py-3 text-slate-800 max-w-xs truncate font-medium">{email.subject}</td>
-                    <td className="py-3 text-slate-600">{email.from}</td>
-                    <td className="py-3 text-slate-600">{new Date(email.date).toLocaleDateString()}</td>
-                    <td className="py-3">
-                      <div className="flex flex-col">
-                        <span className="text-slate-800 font-medium">{email.classification?.label}</span>
-                        <span className="text-xs text-slate-500">
-                          ({email.classification?.confidence ? (email.classification.confidence * 100).toFixed(1) + '%' : 'N/A'})
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {email.labels?.map((label, labelIndex) => (
-                          <span key={labelIndex} className="px-2 py-1 bg-slate-100/50 text-slate-600 rounded text-xs">
-                            {label}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                  </motion.tr>
-                ))}
-              </tbody>
-            </table>
-            {misclassifications.length === 0 && (
-              <div className="text-center py-12">
-                <div className="text-6xl mb-4">🎉</div>
-                <p className="text-slate-600 font-medium">No misclassifications found!</p>
-                <p className="text-sm text-slate-500 mt-1">Your ML model is performing perfectly</p>
-              </div>
-            )}
-          </div>
-        </motion.div>
-      )}
     </motion.div>
   )
 }

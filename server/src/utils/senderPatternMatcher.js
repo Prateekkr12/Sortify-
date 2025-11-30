@@ -139,20 +139,50 @@ export const calculateConfidence = (matches, baseConfidence) => {
 export const extractProfessorTitle = (from) => {
   if (!from) return null
   
-  const professorPatterns = [
-    /\(([^)]*(?:Assistant Professor|Associate Professor|Professor|Faculty|Dr\.).*?)\)/i,
-    /(Assistant Professor|Associate Professor|Professor|Dr\.)\s+/i,
-    /\b(Dr\.)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)/i
-  ]
+  // Pattern 1: "Dr. Nishant Gupta (CSE Associate Professor)" - check parentheses first
+  const parenPattern = /\(([^)]*(?:Assistant|Associate)?\s*(?:Professor|Faculty|Prof\.).*?)\)/i
+  const parenMatch = from.match(parenPattern)
+  if (parenMatch) {
+    const titleInParen = parenMatch[1].trim()
+    // Extract name before parentheses
+    const nameMatch = from.match(/^([^(<]+)/)
+    const name = nameMatch ? nameMatch[1].trim() : extractSenderName(from)
+    return {
+      title: titleInParen,
+      name: name,
+      fullMatch: parenMatch[0].trim()
+    }
+  }
   
-  for (const pattern of professorPatterns) {
-    const match = from.match(pattern)
-    if (match) {
-      return {
-        title: match[1].trim(),
-        name: extractSenderName(from),
-        fullMatch: match[0].trim()
-      }
+  // Pattern 2: "Dr. Nishant Gupta" at start
+  const drNamePattern = /\b(Dr\.)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i
+  const drMatch = from.match(drNamePattern)
+  if (drMatch) {
+    return {
+      title: drMatch[1],
+      name: drMatch[2],
+      fullMatch: drMatch[0].trim()
+    }
+  }
+  
+  // Pattern 3: "(Assistant Professor)" or "(Associate Professor)" anywhere
+  const profPattern = /(Assistant|Associate)?\s*(?:Professor|Prof\.|Faculty)/i
+  if (profPattern.test(from)) {
+    const name = extractSenderName(from)
+    return {
+      title: 'Professor',
+      name: name,
+      fullMatch: from
+    }
+  }
+  
+  // Pattern 4: "Dr." anywhere in sender
+  if (/Dr\./i.test(from)) {
+    const name = extractSenderName(from)
+    return {
+      title: 'Dr.',
+      name: name,
+      fullMatch: from
     }
   }
   
@@ -256,9 +286,52 @@ export const matchSpecificSender = (from, categoryName) => {
   
   // Professor-specific patterns
   if (categoryName === 'Professor') {
+    // Check for specific professor names first (highest confidence)
+    const professorNames = [
+      'nishant gupta', 'kanika singla', 'anubhava srivastava', 'kapil kumar'
+    ]
+    const lowerName = senderName.toLowerCase()
+    for (const profName of professorNames) {
+      if (lowerName.includes(profName.toLowerCase())) {
+        return { matched: true, confidence: 0.95, pattern: 'Professor name match', name: profName }
+      }
+    }
+    
+    // Check for professor title patterns
     const profTitle = extractProfessorTitle(from)
     if (profTitle) {
-      return { matched: true, confidence: 0.90, pattern: 'Professor title', title: profTitle }
+      return { matched: true, confidence: 0.92, pattern: 'Professor title', title: profTitle }
+    }
+    
+    // Check for email domain patterns (sharda.ac.in with professor indicators)
+    if (domain.includes('sharda.ac.in')) {
+      // Check if sender name contains professor indicators
+      if (lowerName.includes('professor') || lowerName.includes('dr.') || 
+          lowerName.includes('assistant professor') || lowerName.includes('associate professor')) {
+        return { matched: true, confidence: 0.88, pattern: 'Professor domain + name', domain: domain }
+      }
+    }
+  }
+  
+  // ServiceNow-specific patterns (for "Other" category)
+  if (categoryName === 'Other') {
+    // ServiceNow patterns
+    if (domain.includes('service-now.com') || domain.includes('servicenow.com') || 
+        domain.includes('nowlearning.com') || domain.includes('signonmail.servicenow.com')) {
+      return { matched: true, confidence: 0.95, pattern: 'ServiceNow domain', domain: domain }
+    }
+    if (lowerFrom.includes('servicenow university') || lowerFrom.includes('nowlearning@')) {
+      return { matched: true, confidence: 0.95, pattern: 'ServiceNow sender', sender: from }
+    }
+    
+    // OpenAI/ChatGPT patterns
+    if (domain.includes('email.openai.com') || domain.includes('openai.com') || 
+        domain.includes('chatgpt.com')) {
+      return { matched: true, confidence: 0.95, pattern: 'OpenAI/ChatGPT domain', domain: domain }
+    }
+    if (lowerFrom.includes('chatgpt') || lowerFrom.includes('openai') || 
+        lowerFrom.includes('noreply@email.openai.com')) {
+      return { matched: true, confidence: 0.95, pattern: 'OpenAI/ChatGPT sender', sender: from }
     }
   }
   

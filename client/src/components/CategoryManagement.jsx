@@ -400,7 +400,11 @@ const CategoryManagement = ({ onCategoryUpdate }) => {
       
       toast.loading('Starting reclassification of all emails...', { duration: 3000 })
       
-      const response = await api.post('/emails/reclassify-all')
+      // Use the new rule-based reclassification endpoint
+      const response = await api.post('/emails/reclassify-all-rule-based', {
+        preserveManual: true,
+        batchSize: 100
+      })
       
       if (response.data.success) {
         const estimate = response.data.estimatedTime || {}

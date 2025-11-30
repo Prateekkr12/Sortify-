@@ -8,8 +8,9 @@ import { getModelMetrics } from '../services/enhancedMLService.js'
 const router = express.Router()
 
 // Cache for advanced analytics
+// Reduced TTL for real-time accuracy - counts update within 30 seconds
 const analyticsCache = new Map()
-const CACHE_TTL = 3 * 60 * 1000 // 3 minutes
+const CACHE_TTL = 30 * 1000 // 30 seconds for real-time counts
 
 function getCachedData(key) {
   const cached = analyticsCache.get(key)
@@ -59,8 +60,15 @@ router.get('/advanced', protect, asyncHandler(async (req, res) => {
     console.log(`🔄 Cache miss - fetching analytics for user ${userId}, range: ${range}, category: ${category}`)
 
     // Build base query - analyze ALL emails by default unless date range is specified
+    // Always exclude deleted emails for consistency with email list and category counts
+    // Match email list endpoint default provider filter
     const query = {
-      userId
+      userId,
+      isDeleted: false,  // Exclude deleted emails for consistency
+      $or: [
+        { provider: 'gmail' },  // Match email list endpoint default provider filter
+        { provider: { $exists: false } }  // Include emails without provider field (legacy emails)
+      ]
     }
 
     // Only apply date filter if range is specified and not 'all'

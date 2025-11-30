@@ -66,9 +66,12 @@ class NotificationService {
 
   // Push notification methods
   async sendPushNotification(userId, notification) {
+    // Ensure userId is always a string for consistency
+    const userIdString = userId ? userId.toString() : userId
+    
     const notificationData = {
       id: this.generateNotificationId(),
-      userId,
+      userId: userIdString,  // Always use string version
       type: notification.type || 'info',
       title: notification.title,
       message: notification.message,

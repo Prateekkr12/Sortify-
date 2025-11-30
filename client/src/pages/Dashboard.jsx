@@ -8,7 +8,6 @@ import EmailList from '../components/EmailList'
 import EmailReader from '../components/EmailReader'
 import CategoryTabs from '../components/CategoryTabs'
 import SuperAnalyticsDashboard from '../components/SuperAnalyticsDashboard'
-import CategoryManagement from '../components/CategoryManagement'
 import BulkOperations from '../components/BulkOperations'
 import NotificationCenter from '../components/NotificationCenter'
 import PerformanceDashboard from '../components/PerformanceDashboard'
@@ -1112,11 +1111,12 @@ const Dashboard = () => {
 
     setReclassifyLoading(true)
     try {
-      console.log('🔄 Starting reclassification...')
-      const response = await api.post('/emails/reclassify-all')
+      console.log('🔄 Starting reclassification via script...')
+      // Use the script-based reclassification endpoint
+      const response = await api.post('/emails/reclassify-all-script')
       
       if (response.data.success) {
-        toast.success('🤖 Reclassification started! Using trained model to classify all emails. This will take 10-20 minutes.', {
+        toast.success('🤖 Reclassification started! All emails will be reclassified based on latest keywords. This will take 10-20 minutes.', {
           duration: 6000
         })
         
@@ -1156,12 +1156,19 @@ const Dashboard = () => {
   }
 
   const handleEmailArchive = async (emailId) => {
-    // Check if this is a thread container
-    const emailItem = emails.find(e => e._id === emailId)
+    // Check if this is a thread container - check both emails array and selectedEmail
+    let emailItem = emails.find(e => e._id === emailId)
+    
+    // FIXED: If not found in emails array, check selectedEmail (for threaded messages)
+    if (!emailItem && selectedEmail && selectedEmail._id === emailId) {
+      emailItem = selectedEmail
+    }
+    
     const isThreadContainer = emailItem && emailItem.isThread && emailItem.messageIds
     
     // Optimistic UI update: immediately mark email as archived
     const previousEmails = [...emails]
+    const previousSelectedEmail = selectedEmail ? { ...selectedEmail } : null
     
     // Immediately update UI - mark as archived but keep visible
     setEmails(prevEmails => prevEmails.map(email => 
@@ -1191,8 +1198,8 @@ const Dashboard = () => {
         } else {
           // Revert on failure
           setEmails(previousEmails)
-          if (selectedEmail && selectedEmail._id === emailId) {
-            setSelectedEmail(previousEmails.find(e => e._id === emailId) || null)
+          if (previousSelectedEmail) {
+            setSelectedEmail(previousSelectedEmail)
           }
           toast.error(response.message || 'Failed to archive thread')
         }
@@ -1213,8 +1220,8 @@ const Dashboard = () => {
         } else {
           // Revert on failure
           setEmails(previousEmails)
-          if (selectedEmail && selectedEmail._id === emailId) {
-            setSelectedEmail(previousEmails.find(e => e._id === emailId) || null)
+          if (previousSelectedEmail) {
+            setSelectedEmail(previousSelectedEmail)
           }
           toast.error(response.message || 'Failed to archive email')
         }
@@ -1223,20 +1230,27 @@ const Dashboard = () => {
       // Revert optimistic update on error
       console.error('Archive error:', error)
       setEmails(previousEmails)
-      if (selectedEmail && selectedEmail._id === emailId) {
-        setSelectedEmail(previousEmails.find(e => e._id === emailId) || null)
+      if (previousSelectedEmail) {
+        setSelectedEmail(previousSelectedEmail)
       }
       toast.error(error?.response?.data?.message || 'Failed to archive email')
     }
   }
 
   const handleEmailUnarchive = async (emailId) => {
-    // Check if this is a thread container
-    const emailItem = emails.find(e => e._id === emailId)
+    // Check if this is a thread container - check both emails array and selectedEmail
+    let emailItem = emails.find(e => e._id === emailId)
+    
+    // FIXED: If not found in emails array, check selectedEmail (for threaded messages)
+    if (!emailItem && selectedEmail && selectedEmail._id === emailId) {
+      emailItem = selectedEmail
+    }
+    
     const isThreadContainer = emailItem && emailItem.isThread && emailItem.messageIds
     
     // Optimistic UI update: immediately mark email as unarchived
     const previousEmails = [...emails]
+    const previousSelectedEmail = selectedEmail ? { ...selectedEmail } : null
     
     // Immediately update UI - mark as unarchived
     setEmails(prevEmails => prevEmails.map(email => 
@@ -1285,8 +1299,8 @@ const Dashboard = () => {
         } else {
           // Revert on failure
           setEmails(previousEmails)
-          if (selectedEmail && selectedEmail._id === emailId) {
-            setSelectedEmail(previousEmails.find(e => e._id === emailId) || null)
+          if (previousSelectedEmail) {
+            setSelectedEmail(previousSelectedEmail)
           }
           toast.error(response.message || 'Failed to unarchive email')
         }
@@ -1295,16 +1309,32 @@ const Dashboard = () => {
       // Revert optimistic update on error
       console.error('Unarchive error:', error)
       setEmails(previousEmails)
-      if (selectedEmail && selectedEmail._id === emailId) {
-        setSelectedEmail(previousEmails.find(e => e._id === emailId) || null)
+      if (previousSelectedEmail) {
+        setSelectedEmail(previousSelectedEmail)
       }
       toast.error(error?.response?.data?.message || 'Failed to unarchive email')
     }
   }
 
   const handleEmailDelete = async (emailId) => {
-    // Check if this is a thread container
-    const emailItem = emails.find(e => e._id === emailId)
+    // Check if this is a thread container - check both emails array and selectedEmail
+    let emailItem = emails.find(e => e._id === emailId)
+    
+    // FIXED: If not found in emails array, check selectedEmail (for threaded messages)
+    if (!emailItem && selectedEmail && selectedEmail._id === emailId) {
+      emailItem = selectedEmail
+    }
+    
+    // FIXED: If still not found, it might be an individual message in a thread
+    // Create a minimal email object for the delete modal
+    if (!emailItem) {
+      emailItem = {
+        _id: emailId,
+        isThread: false,
+        messageIds: null,
+        messageCount: 1
+      }
+    }
     
     // Show the delete confirmation modal
     setEmailToDelete(emailItem)
@@ -1322,20 +1352,55 @@ const Dashboard = () => {
         await emailService.bulkDelete(emailToDelete.messageIds, deleteFromGmail)
         toast.success(`Thread deleted (${emailToDelete.messageCount} messages)${deleteFromGmail ? ' from Gmail too' : ''}`)
       } else {
-        // Single email delete
+        // Single email delete - use the emailId from emailToDelete
         await emailService.remove(emailToDelete._id, deleteFromGmail)
         toast.success(`Email deleted${deleteFromGmail ? ' from Gmail too' : ''}`)
       }
       
       // Close modal and cleanup
       setShowDeleteModal(false)
+      const deletedId = emailToDelete._id
       setEmailToDelete(null)
       
       // Refresh list
       fetchEmails()
-      if (selectedEmailId === emailToDelete._id) {
+      
+      // If we deleted the selected email or thread container, close it
+      if (selectedEmailId === deletedId) {
         setSelectedEmailId(null)
         setSelectedEmail(null)
+      } else if (selectedEmail && selectedEmail.isThread && selectedEmail.messageIds) {
+        // If we deleted a message from an open thread, refresh the thread view
+        if (selectedEmail.messageIds.includes(deletedId)) {
+          // Remove the deleted message from the thread's messageIds
+          const updatedMessageIds = selectedEmail.messageIds.filter(id => id !== deletedId)
+          if (updatedMessageIds.length === 0) {
+            // If all messages deleted, close the view
+            setSelectedEmailId(null)
+            setSelectedEmail(null)
+          } else {
+            // Update the selected email to reflect the deletion
+            const updatedEmail = {
+              ...selectedEmail,
+              messageIds: updatedMessageIds,
+              messageCount: updatedMessageIds.length
+            }
+            setSelectedEmail(updatedEmail)
+            // Reload email details to refresh the thread
+            loadEmailDetails(selectedEmailId)
+          }
+        }
+      }
+      
+      // Trigger refresh callback for EmailReader to update thread messages
+      if (selectedEmail && selectedEmail.isThread) {
+        // The EmailReader will refresh when the email prop changes via loadEmailDetails
+        // But we can also trigger a manual refresh by updating the selectedEmail
+        setTimeout(() => {
+          if (selectedEmailId) {
+            loadEmailDetails(selectedEmailId)
+          }
+        }, 500)
       }
     } catch (error) {
       console.error('Delete error:', error)
@@ -1347,8 +1412,14 @@ const Dashboard = () => {
 
   const handleEmailExport = async (emailId) => {
     try {
-      // Check if this is a thread container
-      const emailItem = emails.find(e => e._id === emailId)
+      // Check if this is a thread container - check both emails array and selectedEmail
+      let emailItem = emails.find(e => e._id === emailId)
+      
+      // FIXED: If not found in emails array, check selectedEmail (for threaded messages)
+      if (!emailItem && selectedEmail && selectedEmail._id === emailId) {
+        emailItem = selectedEmail
+      }
+      
       const isThreadContainer = emailItem && emailItem.isThread && emailItem.messageIds
       
       if (isThreadContainer) {
@@ -2046,14 +2117,6 @@ const Dashboard = () => {
                     </div>
                   </div>
 
-                  {/* Category Management */}
-                  <CategoryManagement onCategoryUpdate={() => {
-                    fetchEmails(true)
-                    fetchStats(true)
-                    fetchSyncStatus()
-                    // Trigger CategoryTabs refresh
-                    setCategoryTabsRefresh(prev => prev + 1)
-                  }} />
                 </div>
               </div>
 
@@ -2186,7 +2249,7 @@ const Dashboard = () => {
                        onSelect={handleEmailSelect}
                        loading={emailsLoading}
                        onPageChange={handlePageChange}
-                       totalEmails={stats?.totalEmails || 0}
+                       totalEmails={currentCategoryCount || stats?.totalEmails || 0}
                        currentPage={currentPage}
                        totalPages={totalPages}
                        onBulkSelect={handleBulkSelect}
@@ -2218,6 +2281,12 @@ const Dashboard = () => {
                       onExport={handleEmailExport}
                       onClose={handleEmailClose}
                       onReplySuccess={handleEmailReplySuccess}
+                      onDeleteSuccess={() => {
+                        // Refresh thread messages after deletion
+                        if (selectedEmail && selectedEmail.isThread && selectedEmailId) {
+                          loadEmailDetails(selectedEmailId)
+                        }
+                      }}
                       loading={emailDetailLoading}
                     />
                   </div>

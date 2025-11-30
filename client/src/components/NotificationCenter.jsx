@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import { api } from '../services/api'
@@ -29,29 +29,66 @@ const NotificationCenter = ({ isOpen, onClose, onNotificationUpdate }) => {
   const [preferences, setPreferences] = useState(null)
   const [showPreferences, setShowPreferences] = useState(false)
   const [markingAsRead, setMarkingAsRead] = useState(new Set())
+  const isFetchingRef = React.useRef(false) // Use ref to prevent dependency issues
   const { lastMessage } = useWebSocketContext()
 
   const fetchNotifications = useCallback(async () => {
+    // Prevent multiple simultaneous requests
+    if (isFetchingRef.current) {
+      console.log('NotificationCenter: Fetch already in progress, skipping...')
+      return
+    }
+
+    let loadingSet = false
     try {
+      isFetchingRef.current = true
       setLoading(true)
+      loadingSet = true
       const token = localStorage.getItem('token')
       if (!token) {
+        console.warn('No authentication token found')
         toast.error('Authentication required')
+        setNotifications([])
         return
       }
 
-      const response = await api.get('/notifications')
+      console.log('NotificationCenter: Fetching notifications...')
+      const response = await api.get('/notifications', {
+        timeout: 8000 // 8 second timeout (reduced since server is optimized)
+      })
+      
       console.log('NotificationCenter API response:', response.data)
-      if (response.data.success) {
+      
+      if (response.data && response.data.success) {
         const newNotifications = response.data.notifications || []
+        console.log('NotificationCenter: Received', newNotifications.length, 'notifications')
+        
+        // Sort notifications once
+        const sortedNotifications = newNotifications.sort((a, b) => {
+          const timeA = new Date(a.timestamp || 0).getTime()
+          const timeB = new Date(b.timestamp || 0).getTime()
+          return timeB - timeA
+        })
+        
         setNotifications(prevNotifications => {
+          // Check if the data actually changed to prevent unnecessary re-renders
+          if (prevNotifications.length === sortedNotifications.length) {
+            const prevIds = prevNotifications.map(n => n.id).sort().join(',')
+            const newIds = sortedNotifications.map(n => n.id).sort().join(',')
+            if (prevIds === newIds) {
+              // Data hasn't changed, return previous state to prevent re-render
+              console.log('NotificationCenter: No changes detected, skipping update')
+              return prevNotifications
+            }
+          }
+          
           // Merge with existing to preserve any local updates
-          const merged = [...newNotifications]
+          const merged = [...sortedNotifications]
           
           // If we have local updates that aren't reflected in the server response,
           // preserve them temporarily (within 2 minutes of the update)
           prevNotifications.forEach(prevNotif => {
-            const existsInNew = newNotifications.find(n => n.id === prevNotif.id)
+            const existsInNew = sortedNotifications.find(n => n.id === prevNotif.id)
             if (!existsInNew && prevNotif.readAt) {
               const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000)
               if (new Date(prevNotif.readAt) > twoMinutesAgo) {
@@ -62,23 +99,49 @@ const NotificationCenter = ({ isOpen, onClose, onNotificationUpdate }) => {
           
           console.log('NotificationCenter merged notifications:', {
             prev: prevNotifications.length,
-            new: newNotifications.length,
+            new: sortedNotifications.length,
             merged: merged.length
           })
           
-          return merged.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+          // Sort again after merging
+          return merged.sort((a, b) => {
+            const timeA = new Date(a.timestamp || 0).getTime()
+            const timeB = new Date(b.timestamp || 0).getTime()
+            return timeB - timeA
+          })
         })
       } else {
-        throw new Error(response.data.message || 'Failed to fetch notifications')
+        console.error('NotificationCenter: Invalid response structure', response.data)
+        throw new Error(response.data?.message || 'Invalid response from server')
       }
     } catch (error) {
       console.error('Error fetching notifications:', error)
-      toast.error('Failed to load notifications')
-      setNotifications([])
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        code: error.code
+      })
+      
+      // Only show toast for actual errors, not for network timeouts that might be temporary
+      if (error.code === 'ECONNABORTED') {
+        console.warn('NotificationCenter: Request timeout, will retry')
+      } else if (error.response?.status === 401) {
+        // Auth errors are handled by the API interceptor
+        console.warn('NotificationCenter: Authentication error')
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to load notifications')
+      }
+      
+      // Don't clear notifications on error - keep existing ones
+      // setNotifications([])
     } finally {
-      setLoading(false)
+      if (loadingSet) {
+        setLoading(false)
+      }
+      isFetchingRef.current = false
     }
-  }, [])
+  }, []) // Stable callback - no dependencies
 
   const fetchPreferences = useCallback(async () => {
     try {
@@ -105,17 +168,55 @@ const NotificationCenter = ({ isOpen, onClose, onNotificationUpdate }) => {
     }
   }, [])
 
+  // Track if we've fetched on this open session
+  const hasFetchedRef = React.useRef(false)
+  
   useEffect(() => {
     if (isOpen) {
-      fetchNotifications()
-      fetchPreferences()
+      // Only fetch once per open session
+      if (!hasFetchedRef.current && !isFetchingRef.current) {
+        console.log('NotificationCenter: Opening, fetching notifications...')
+        hasFetchedRef.current = true
+        // Fetch notifications and preferences
+        fetchNotifications()
+        fetchPreferences()
+        
+        // Set a safety timeout to ensure loading doesn't get stuck
+        const loadingTimeout = setTimeout(() => {
+          console.warn('NotificationCenter: Loading timeout, forcing loading to false')
+          setLoading(false)
+          isFetchingRef.current = false
+        }, 15000) // 15 second safety timeout
+        
+        return () => {
+          clearTimeout(loadingTimeout)
+        }
+      }
+    } else {
+      // Reset fetch flag when closed
+      hasFetchedRef.current = false
+      setLoading(false)
+      isFetchingRef.current = false
     }
-  }, [isOpen, fetchNotifications, fetchPreferences])
+  }, [isOpen, fetchNotifications, fetchPreferences]) // Stable callbacks
 
   useEffect(() => {
     if (lastMessage && lastMessage.type === 'notification') {
       const newNotification = lastMessage.data
-      setNotifications(prev => [newNotification, ...prev])
+      
+      // Only add if notification doesn't already exist (prevent duplicates)
+      setNotifications(prev => {
+        const exists = prev.some(n => n.id === newNotification.id)
+        if (exists) {
+          console.log('NotificationCenter: Notification already exists, skipping:', newNotification.id)
+          return prev
+        }
+        return [newNotification, ...prev].sort((a, b) => {
+          const timeA = new Date(a.timestamp || 0).getTime()
+          const timeB = new Date(b.timestamp || 0).getTime()
+          return timeB - timeA
+        })
+      })
       
       // Show toast notification
       toast.success(newNotification.title, {
@@ -392,14 +493,20 @@ const NotificationCenter = ({ isOpen, onClose, onNotificationUpdate }) => {
     }
   }
 
-  const filteredNotifications = notifications.filter(notification => {
-    if (filter === 'all') return true
-    if (filter === 'unread') return !notification.read
-    if (filter === 'security') return ['connection', 'profile_update', 'system', 'login', 'auth'].includes(notification.type)
-    return notification.type === filter
-  })
+  // Memoize filtered notifications to prevent unnecessary recalculations
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter(notification => {
+      if (filter === 'all') return true
+      if (filter === 'unread') return !notification.read
+      if (filter === 'security') return ['connection', 'profile_update', 'system', 'login', 'auth'].includes(notification.type)
+      return notification.type === filter
+    })
+  }, [notifications, filter])
 
-  const unreadCount = notifications.filter(n => !n.read).length
+  // Memoize unread count
+  const unreadCount = useMemo(() => {
+    return notifications.filter(n => !n.read).length
+  }, [notifications])
 
   if (!isOpen) return null
 

@@ -555,6 +555,249 @@ export const reclassifyEmailsByCategory = async (userId, oldCategory, newCategor
   }
 }
 
+/**
+ * Reclassify all emails using rule-based classification (preserves manual categorizations)
+ * @param {string|null} userId - User ID (null for all users)
+ * @param {Object} options - Reclassification options
+ * @returns {Promise<Object>} Statistics and results
+ */
+export const reclassifyAllEmailsWithRuleBased = async (userId = null, options = {}) => {
+  try {
+    const { batchSize = 100, preserveManual = true } = options
+    
+    // Get all users or specific user
+    const User = (await import('../models/User.js')).default
+    const users = userId 
+      ? [await User.findById(userId)]
+      : await User.find({})
+    
+    const allUsers = users.filter(u => u !== null)
+    
+    if (allUsers.length === 0) {
+      return {
+        success: false,
+        message: 'No users found',
+        statistics: {}
+      }
+    }
+    
+    console.log(`🔄 Starting rule-based reclassification for ${allUsers.length} user(s)`)
+    
+    const overallStats = {
+      totalUsers: allUsers.length,
+      totalEmails: 0,
+      processedEmails: 0,
+      reclassifiedEmails: 0,
+      skippedManualEmails: 0,
+      skippedSameCategory: 0,
+      errorCount: 0,
+      categoryChanges: {}, // Track category changes
+      userResults: []
+    }
+    
+    // Process each user
+    for (const user of allUsers) {
+      try {
+        const userStats = await reclassifyUserEmailsWithRuleBased(
+          user._id.toString(),
+          { batchSize, preserveManual }
+        )
+        
+        overallStats.totalEmails += userStats.totalEmails
+        overallStats.processedEmails += userStats.processedEmails
+        overallStats.reclassifiedEmails += userStats.reclassifiedEmails
+        overallStats.skippedManualEmails += userStats.skippedManualEmails
+        overallStats.skippedSameCategory += userStats.skippedSameCategory
+        overallStats.errorCount += userStats.errorCount
+        
+        // Merge category changes
+        Object.keys(userStats.categoryChanges).forEach(oldCat => {
+          if (!overallStats.categoryChanges[oldCat]) {
+            overallStats.categoryChanges[oldCat] = {}
+          }
+          Object.keys(userStats.categoryChanges[oldCat]).forEach(newCat => {
+            overallStats.categoryChanges[oldCat][newCat] = 
+              (overallStats.categoryChanges[oldCat][newCat] || 0) + 
+              userStats.categoryChanges[oldCat][newCat]
+          })
+        })
+        
+        overallStats.userResults.push({
+          userId: user._id.toString(),
+          userEmail: user.email,
+          ...userStats
+        })
+        
+        console.log(`✅ Completed reclassification for user ${user.email}: ${userStats.reclassifiedEmails}/${userStats.totalEmails} reclassified`)
+        
+      } catch (userError) {
+        console.error(`❌ Error reclassifying emails for user ${user.email}:`, userError)
+        overallStats.errorCount++
+      }
+    }
+    
+    return {
+      success: true,
+      message: `Reclassification completed for ${allUsers.length} user(s)`,
+      statistics: overallStats
+    }
+    
+  } catch (error) {
+    console.error('❌ Error in reclassifyAllEmailsWithRuleBased:', error)
+    throw error
+  }
+}
+
+/**
+ * Reclassify emails for a single user using rule-based classification
+ * @param {string} userId - User ID
+ * @param {Object} options - Options
+ * @returns {Promise<Object>} Statistics
+ */
+const reclassifyUserEmailsWithRuleBased = async (userId, options = {}) => {
+  const { batchSize = 100, preserveManual = true } = options
+  
+  // Import rule-based classification service
+  const { classifyEmail: ruleBasedClassify } = await import('./ruleBasedClassificationService.js')
+  
+  // Get total email count
+  const totalEmails = await Email.countDocuments({
+    userId: new mongoose.Types.ObjectId(userId),
+    isDeleted: false
+  })
+  
+  console.log(`📧 Processing ${totalEmails} emails for user ${userId}`)
+  
+  const stats = {
+    totalEmails,
+    processedEmails: 0,
+    reclassifiedEmails: 0,
+    skippedManualEmails: 0,
+    skippedSameCategory: 0,
+    errorCount: 0,
+    categoryChanges: {} // { oldCategory: { newCategory: count } }
+  }
+  
+  let offset = 0
+  
+  while (offset < totalEmails) {
+    try {
+      // Get batch of emails with labels
+      const emails = await Email.find({
+        userId: new mongoose.Types.ObjectId(userId),
+        isDeleted: false
+      })
+      .skip(offset)
+      .limit(batchSize)
+      .select('_id subject snippet body text html category from labels classification')
+      
+      if (emails.length === 0) break
+      
+      console.log(`📦 Processing batch: ${offset + 1}-${offset + emails.length} of ${totalEmails}`)
+      
+      for (const email of emails) {
+        try {
+          // Check if email was manually categorized (preserve it)
+          const isManual = preserveManual && (
+            email.classification?.modelVersion === 'manual' ||
+            (email.classification?.confidence === 1.0 && 
+             email.classification?.reason?.toLowerCase().includes('manual'))
+          )
+          
+          if (isManual) {
+            stats.skippedManualEmails++
+            stats.processedEmails++
+            continue
+          }
+          
+          // Reclassify using rule-based service
+          const emailData = {
+            subject: email.subject || '',
+            snippet: email.snippet || '',
+            body: email.body || email.text || '',
+            from: email.from || '',
+            labels: email.labels || []
+          }
+          
+          const classification = await ruleBasedClassify(emailData, userId)
+          
+          // Update if category changed
+          if (classification.label !== email.category) {
+            // Track category change
+            const oldCat = email.category || 'Other'
+            const newCat = classification.label || 'Other'
+            
+            if (!stats.categoryChanges[oldCat]) {
+              stats.categoryChanges[oldCat] = {}
+            }
+            if (!stats.categoryChanges[oldCat][newCat]) {
+              stats.categoryChanges[oldCat][newCat] = 0
+            }
+            stats.categoryChanges[oldCat][newCat]++
+            
+            // Update email
+            await Email.findByIdAndUpdate(email._id, {
+              category: classification.label,
+              classification: {
+                label: classification.label,
+                confidence: classification.confidence,
+                modelVersion: '3.0.0-rule-based',
+                model: classification.model || 'rule-based',
+                method: classification.method,
+                phase: classification.phase || 1,
+                classifiedAt: new Date(),
+                reason: 'Reclassified with rule-based system (label + keyword)',
+                matchedKeywords: classification.matchedKeywords,
+                matchedPhrases: classification.matchedPhrases,
+                matchedPattern: classification.matchedPattern,
+                matchedValue: classification.matchedValue,
+                matchedLabel: classification.matchedLabel
+              },
+              updatedAt: new Date()
+            })
+            
+            stats.reclassifiedEmails++
+          } else {
+            stats.skippedSameCategory++
+          }
+          
+          stats.processedEmails++
+          
+        } catch (emailError) {
+          console.error(`❌ Error reclassifying email ${email._id}:`, emailError.message)
+          stats.errorCount++
+          stats.processedEmails++
+        }
+      }
+      
+      offset += batchSize
+      
+      // Progress update
+      const progressPercent = Math.round((stats.processedEmails / totalEmails) * 100)
+      if (progressPercent % 10 === 0) {
+        console.log(`📊 Progress: ${progressPercent}% (${stats.processedEmails}/${totalEmails}) - Reclassified: ${stats.reclassifiedEmails}, Skipped: ${stats.skippedManualEmails + stats.skippedSameCategory}`)
+      }
+      
+      // Small delay to prevent overwhelming the system
+      await new Promise(resolve => setTimeout(resolve, 50))
+      
+    } catch (batchError) {
+      console.error(`❌ Error processing batch at offset ${offset}:`, batchError)
+      stats.errorCount += batchSize
+      offset += batchSize
+    }
+  }
+  
+  // Update category counts after reclassification
+  try {
+    await updateCategoryCounts(new mongoose.Types.ObjectId(userId))
+  } catch (error) {
+    console.error('❌ Error updating category counts:', error)
+  }
+  
+  return stats
+}
+
 export default {
   startReclassificationJob,
   getActiveReclassificationJobs,
@@ -562,5 +805,6 @@ export default {
   cancelReclassificationJob,
   reclassifyAllEmails,
   reclassifyEmailsBatch,
-  reclassifyEmailsByCategory
+  reclassifyEmailsByCategory,
+  reclassifyAllEmailsWithRuleBased
 }

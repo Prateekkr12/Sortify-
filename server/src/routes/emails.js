@@ -1,5 +1,8 @@
 import express from 'express'
 import { google } from 'googleapis'
+import { spawn } from 'child_process'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { protect } from '../middleware/auth.js'
 import { asyncHandler } from '../middleware/errorHandler.js'
 import User from '../models/User.js'
@@ -9,13 +12,16 @@ import { startRealtimeSync, stopRealtimeSync, isSyncActive } from '../services/r
 import { fullSync, syncLabels } from '../services/gmailSyncService.js'
 import notificationService from '../services/notificationService.js'
 import { updateUserActivity } from '../services/enhancedRealtimeSync.js'
-import { reclassifyAllEmails, getJobStatus } from '../services/emailReclassificationService.js'
+import { reclassifyAllEmails, getJobStatus, reclassifyAllEmailsWithRuleBased } from '../services/emailReclassificationService.js'
 import { estimateReclassificationTime } from '../services/categoryFeatureService.js'
 import { sendReply } from '../services/gmailSendService.js'
 import { groupEmailsIntoThreads } from '../services/threadGroupingService.js'
 import { clearAnalyticsCache } from './analytics.js'
 import { clearCategoryCache } from '../services/categoryService.js'
 import emailContentCache from '../services/emailContentCache.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const router = express.Router()
 
@@ -142,7 +148,7 @@ router.post('/gmail/sync', protect, asyncHandler(async (req, res) => {
           { upsert: true, new: true }
         )
         
-        // Classify the email with two-phase system
+        // Classify the email with rule-based classification (includes labels)
         const classification = await classifyEmail(
           subject, 
           snippet, 
@@ -150,7 +156,8 @@ router.post('/gmail/sync', protect, asyncHandler(async (req, res) => {
           user._id.toString(),
           {
             emailId: result._id.toString(),
-            from: from
+            from: from,
+            labels: emailData.labels || []
           }
         )
 
@@ -365,11 +372,20 @@ router.get('/', protect, asyncHandler(async (req, res) => {
     const skip = (page - 1) * limit
     const isThreaded = threaded === 'true'
 
-    let query = { userId: req.user._id }
+    // Standard query structure - always exclude deleted emails for consistency with analytics
+    // Include emails without provider field (legacy emails) to match analytics
+    let query = { 
+      userId: req.user._id,
+      isDeleted: false,  // Exclude deleted emails for consistent counts with analytics
+      $or: [
+        { provider: 'gmail' },
+        { provider: { $exists: false } }  // Include legacy emails without provider field
+      ]
+    }
 
     // Filter by provider (default to gmail)
     if (provider === 'gmail') {
-      query.provider = 'gmail'
+      // Already included in $or above
     } else if (provider === 'outlook') {
       // Outlook coming soon - return empty for now
       return res.json({
@@ -407,14 +423,13 @@ router.get('/', protect, asyncHandler(async (req, res) => {
     const selectFields = '-html -text -body -fullBody -enhancedMetadata.urls -extractedFeatures'
 
     let items
-    let total
 
+    // Always use actual count for consistency with analytics - threading is just for display
+    const total = await Email.countDocuments(query)
+    
     if (isThreaded) {
       // OPTIMIZED: Use threading but with pagination-friendly approach
       console.log('🧵 Threading enabled - using optimized threading')
-      
-      // Count total matching emails first
-      const totalEmails = await Email.countDocuments(query)
       
       // OPTIMIZED: Only fetch enough emails for the current page + some buffer for threading
       // Instead of fetching ALL emails, fetch 3x the limit to ensure we have enough for threads
@@ -434,14 +449,12 @@ router.get('/', protect, asyncHandler(async (req, res) => {
       const threads = groupEmailsIntoThreads(emails)
       
       // Apply pagination to threaded results
-      total = Math.ceil(totalEmails / 1.5) // Estimate thread count (threads reduce total)
+      // Use actual total count (not estimated) for consistency with analytics
       items = threads.slice(0, parseInt(limit)) // Take only the requested number of threads
       
-      console.log(`✅ Grouped ${emails.length} emails into ${threads.length} threads, returning ${items.length}`)
+      console.log(`✅ Grouped ${emails.length} emails into ${threads.length} threads, returning ${items.length} (total: ${total})`)
     } else {
       // OPTIMIZED: Standard pagination with lean queries
-      total = await Email.countDocuments(query)
-      
       items = await Email.find(query)
         .sort({ date: -1 })
         .skip(skip)
@@ -1313,8 +1326,16 @@ router.delete('/:id', protect, asyncHandler(async (req, res) => {
       }
     }
 
+    // Store category before deletion for cache clearing
+    const deletedCategory = email.category
+
     // Remove from local database
     await Email.findByIdAndDelete(req.params.id)
+
+    // Clear caches to update category counts immediately
+    clearAnalyticsCache(req.user._id.toString())
+    clearCategoryCache(req.user._id.toString())
+    console.log(`🗑️ Cleared caches after email deletion (category: ${deletedCategory})`)
 
     // Send notification about email deletion
     notificationService.sendEmailOperationNotification(req.user._id.toString(), {
@@ -1390,6 +1411,13 @@ router.post('/recategorize/:emailId', protect, asyncHandler(async (req, res) => 
       category: newCategory,
       updatedAt: new Date()
     })
+
+    // Clear caches if category changed
+    if (oldCategory !== newCategory) {
+      clearAnalyticsCache(userId.toString())
+      clearCategoryCache(userId.toString())
+      console.log(`🗑️ Cleared caches after recategorization (${oldCategory} → ${newCategory})`)
+    }
 
     // Update category email counts
     await Category.updateEmailCount(userId, oldCategory)
@@ -1689,6 +1717,16 @@ router.put('/:id/category', protect, asyncHandler(async (req, res) => {
       })
     }
 
+    // Get old category before update for cache clearing
+    const oldEmail = await Email.findOne({ _id: id, userId: req.user._id })
+    if (!oldEmail) {
+      return res.status(404).json({
+        success: false,
+        message: 'Email not found'
+      })
+    }
+    const oldCategory = oldEmail.category
+
     const email = await Email.findOneAndUpdate(
       { _id: id, userId: req.user._id },
       { 
@@ -1701,11 +1739,11 @@ router.put('/:id/category', protect, asyncHandler(async (req, res) => {
       { new: true }
     )
 
-    if (!email) {
-      return res.status(404).json({
-        success: false,
-        message: 'Email not found'
-      })
+    // Clear caches if category changed
+    if (oldCategory !== category) {
+      clearAnalyticsCache(req.user._id.toString())
+      clearCategoryCache(req.user._id.toString())
+      console.log(`🗑️ Cleared caches after category change (${oldCategory} → ${category})`)
     }
 
     res.json({
@@ -2405,6 +2443,157 @@ router.get('/:id/full-content', protect, asyncHandler(async (req, res) => {
   }
 }))
 
+// @desc    Trigger rule-based reclassification of all emails for current user
+// @route   POST /api/emails/reclassify-all-rule-based
+// @access  Private
+router.post('/reclassify-all-rule-based', protect, asyncHandler(async (req, res) => {
+  try {
+    const userId = req.user._id.toString()
+    const { preserveManual = true, batchSize = 100 } = req.body
+    
+    console.log(`🔄 Starting rule-based reclassification for user: ${userId}`)
+    
+    // Start reclassification asynchronously
+    reclassifyAllEmailsWithRuleBased(userId, { preserveManual, batchSize })
+      .then(result => {
+        console.log(`✅ Rule-based reclassification completed for user ${userId}:`, result)
+        
+        notificationService.sendClassificationNotification(userId, {
+          emailId: 'system',
+          category: 'system',
+          confidence: 1.0,
+          message: `Reclassification complete: ${result.statistics.reclassifiedEmails} emails reclassified`
+        })
+      })
+      .catch(error => {
+        console.error(`❌ Rule-based reclassification failed for user ${userId}:`, error)
+        
+        notificationService.sendClassificationNotification(userId, {
+          emailId: 'system',
+          category: 'system',
+          confidence: 0.0,
+          message: `Reclassification failed: ${error.message}`
+        })
+      })
+    
+    // Return immediately
+    res.json({
+      success: true,
+      message: 'Rule-based reclassification started. This may take some time.',
+      userId: userId
+    })
+    
+  } catch (error) {
+    console.error('Rule-based reclassification trigger error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to start reclassification',
+      error: error.message
+    })
+  }
+}))
+
+// @desc    Trigger rule-based reclassification for all users (admin)
+// @route   POST /api/emails/reclassify-all-users
+// @access  Private
+router.post('/reclassify-all-users', protect, asyncHandler(async (req, res) => {
+  try {
+    const { preserveManual = true, batchSize = 100 } = req.body
+    
+    console.log(`🔄 Starting rule-based reclassification for ALL users`)
+    
+    // Start reclassification asynchronously
+    reclassifyAllEmailsWithRuleBased(null, { preserveManual, batchSize })
+      .then(result => {
+        console.log(`✅ Rule-based reclassification completed for all users:`, result)
+        
+        // Send notification to requesting user
+        notificationService.sendClassificationNotification(req.user._id.toString(), {
+          emailId: 'system',
+          category: 'system',
+          confidence: 1.0,
+          message: `Reclassification complete: ${result.statistics.reclassifiedEmails} emails reclassified across ${result.statistics.totalUsers} users`
+        })
+      })
+      .catch(error => {
+        console.error(`❌ Rule-based reclassification failed for all users:`, error)
+        
+        notificationService.sendClassificationNotification(req.user._id.toString(), {
+          emailId: 'system',
+          category: 'system',
+          confidence: 0.0,
+          message: `Reclassification failed: ${error.message}`
+        })
+      })
+    
+    // Return immediately
+    res.json({
+      success: true,
+      message: 'Rule-based reclassification started for all users. This may take a long time.',
+      allUsers: true
+    })
+    
+  } catch (error) {
+    console.error('Rule-based reclassification trigger error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to start reclassification',
+      error: error.message
+    })
+  }
+}))
+
+// @desc    Trigger rule-based reclassification for specific user
+// @route   POST /api/emails/reclassify-user/:userId
+// @access  Private
+router.post('/reclassify-user/:userId', protect, asyncHandler(async (req, res) => {
+  try {
+    const targetUserId = req.params.userId
+    const { preserveManual = true, batchSize = 100 } = req.body
+    
+    console.log(`🔄 Starting rule-based reclassification for user: ${targetUserId}`)
+    
+    // Start reclassification asynchronously
+    reclassifyAllEmailsWithRuleBased(targetUserId, { preserveManual, batchSize })
+      .then(result => {
+        console.log(`✅ Rule-based reclassification completed for user ${targetUserId}:`, result)
+        
+        // Send notification to requesting user
+        notificationService.sendClassificationNotification(req.user._id.toString(), {
+          emailId: 'system',
+          category: 'system',
+          confidence: 1.0,
+          message: `Reclassification complete for user: ${result.statistics.reclassifiedEmails} emails reclassified`
+        })
+      })
+      .catch(error => {
+        console.error(`❌ Rule-based reclassification failed for user ${targetUserId}:`, error)
+        
+        notificationService.sendClassificationNotification(req.user._id.toString(), {
+          emailId: 'system',
+          category: 'system',
+          confidence: 0.0,
+          message: `Reclassification failed: ${error.message}`
+        })
+      })
+    
+    // Return immediately
+    res.json({
+      success: true,
+      message: 'Rule-based reclassification started for specified user.',
+      userId: targetUserId
+    })
+    
+  } catch (error) {
+    console.error('Rule-based reclassification trigger error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to start reclassification',
+      error: error.message
+    })
+  }
+}))
+
 // @desc    Trigger reclassification of all user emails
 // @route   POST /api/emails/reclassify-all
 // @access  Private
@@ -2513,6 +2702,92 @@ router.get('/reclassification-status/:jobId', protect, asyncHandler(async (req, 
     res.status(500).json({
       success: false,
       message: 'Failed to get job status'
+    })
+  }
+}))
+
+// @desc    Trigger reclassification via script execution
+// @route   POST /api/emails/reclassify-all-script
+// @access  Private
+router.post('/reclassify-all-script', protect, asyncHandler(async (req, res) => {
+  try {
+    const userId = req.user._id.toString()
+    
+    console.log(`🔄 Starting script-based reclassification for user: ${userId}`)
+    
+    // Get the server directory (go up from src/routes to server root)
+    const serverDir = path.join(__dirname, '../..')
+    const scriptPath = path.join(serverDir, 'src', 'scripts', 'triggerReclassificationNow.js')
+    
+    console.log(`📝 Executing script: ${scriptPath}`)
+    console.log(`📁 Working directory: ${serverDir}`)
+    
+    // Spawn the script as a child process
+    const childProcess = spawn('node', [scriptPath, userId], {
+      cwd: serverDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false
+    })
+    
+    // Log script output
+    childProcess.stdout.on('data', (data) => {
+      console.log(`[Reclassify Script] ${data.toString()}`)
+    })
+    
+    childProcess.stderr.on('data', (data) => {
+      console.error(`[Reclassify Script Error] ${data.toString()}`)
+    })
+    
+    // Handle process completion
+    childProcess.on('close', (code) => {
+      if (code === 0) {
+        console.log(`✅ Reclassification script completed successfully for user ${userId}`)
+        
+        // Send success notification
+        notificationService.sendClassificationNotification(userId, {
+          emailId: 'system',
+          category: 'system',
+          confidence: 1.0,
+          message: 'Reclassification completed successfully using latest keywords'
+        })
+      } else {
+        console.error(`❌ Reclassification script exited with code ${code} for user ${userId}`)
+        
+        // Send error notification
+        notificationService.sendClassificationNotification(userId, {
+          emailId: 'system',
+          category: 'system',
+          confidence: 0.0,
+          message: `Reclassification script failed with exit code ${code}`
+        })
+      }
+    })
+    
+    // Handle process errors
+    childProcess.on('error', (error) => {
+      console.error(`❌ Failed to spawn reclassification script for user ${userId}:`, error)
+      
+      notificationService.sendClassificationNotification(userId, {
+        emailId: 'system',
+        category: 'system',
+        confidence: 0.0,
+        message: `Failed to start reclassification script: ${error.message}`
+      })
+    })
+    
+    // Return immediately (non-blocking)
+    res.json({
+      success: true,
+      message: 'Reclassification script started. This will reclassify all emails using the latest keywords.',
+      userId: userId
+    })
+    
+  } catch (error) {
+    console.error('Reclassification script trigger error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to start reclassification script',
+      error: error.message
     })
   }
 }))

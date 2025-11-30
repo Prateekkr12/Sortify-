@@ -179,12 +179,16 @@ const syncNewEmails = async (gmail, user) => {
           const message = await fetchMessage(gmail, messageId)
           const emailData = parseEmailMessage(message)
           
-          // Classify the email using ML
+          // Classify the email using rule-based classification
           const classification = await classifyEmail(
             emailData.subject, 
             emailData.snippet, 
             emailData.body || emailData.text,
-            user._id.toString()
+            user._id.toString(),
+            {
+              from: emailData.from,
+              labels: emailData.labels || []
+            }
           )
 
           // Add classification to email data
@@ -194,7 +198,9 @@ const syncNewEmails = async (gmail, user) => {
             classification: {
               label: classification.label,
               confidence: classification.confidence,
-              modelVersion: '2.0.0',
+              modelVersion: '3.0.0-rule-based',
+              model: classification.model || 'rule-based',
+              method: classification.method,
               classifiedAt: new Date()
             }
           }

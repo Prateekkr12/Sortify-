@@ -7,7 +7,7 @@ import { getCategoryLightColors } from '../utils/categoryColors'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 
-const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelete, onExport, onClose, onReplySuccess, loading = false }) => {
+const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelete, onExport, onClose, onReplySuccess, onDeleteSuccess, loading = false }) => {
   const [showQuickReply, setShowQuickReply] = useState(false)
   const [threadMessages, setThreadMessages] = useState([])
   const [loadingThread, setLoadingThread] = useState(false)
@@ -288,15 +288,15 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
         {/* Header Section with Gradient */}
         <div className="relative bg-gradient-to-br from-blue-50/80 via-white/60 to-purple-50/80">
           <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-transparent to-purple-500/5"></div>
-          <div className="relative p-6 pb-4">
+          <div className="relative p-6 pb-4 overflow-visible">
             {/* Subject and Actions */}
-            <div className="flex items-start justify-between mb-6">
-              <div className="flex-1 pr-6">
-                <h1 className="text-2xl font-bold text-slate-900 leading-tight mb-2">
+            <div className="flex items-start justify-between mb-6 gap-4">
+              <div className="flex-1 min-w-0 pr-4">
+                <h1 className="text-2xl font-bold text-slate-900 leading-tight mb-2 break-words">
                   {email.subject}
                 </h1>
                 {/* Category Badge */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span
                     className={`px-3 py-1.5 rounded-full text-xs font-semibold shadow-sm ${getCategoryLightColors(
                       email.category
@@ -313,7 +313,7 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
               </div>
               
               {/* Action Buttons */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-shrink-0">
                 <button
                   onClick={() => setShowQuickReply(true)}
                   className="group relative p-3 rounded-xl backdrop-blur-sm bg-gradient-to-br from-green-400/20 to-green-600/20 border border-green-300/30 hover:from-green-400/30 hover:to-green-600/30 hover:border-green-400/50 transition-all duration-300 shadow-md hover:shadow-green-200/50 hover:scale-105 flex items-center justify-center"
@@ -386,7 +386,11 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
                   </div>
                   <div className="min-w-0 flex-1">
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide block">From</span>
-                    <span className="text-sm text-slate-900 break-words leading-relaxed">{email.from}</span>
+                    <span className="text-sm text-slate-900 break-words leading-relaxed">
+                      {isThread && threadMessages.length > 0 
+                        ? threadMessages[threadMessages.length - 1].from || email.from
+                        : email.from}
+                    </span>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -395,7 +399,11 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
                   </div>
                   <div className="min-w-0 flex-1">
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide block">To</span>
-                    <span className="text-sm text-slate-900 break-words leading-relaxed">{email.to}</span>
+                    <span className="text-sm text-slate-900 break-words leading-relaxed">
+                      {isThread && threadMessages.length > 0 
+                        ? threadMessages[threadMessages.length - 1].to || email.to
+                        : email.to}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -406,9 +414,26 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
                   </div>
                   <div className="min-w-0 flex-1">
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide block">Date</span>
-                    <span className="text-sm text-slate-900">{formatDate(email.date)}</span>
+                    <span className="text-sm text-slate-900">
+                      {isThread && threadMessages.length > 0 
+                        ? formatDate(threadMessages[threadMessages.length - 1].date || email.date)
+                        : formatDate(email.date)}
+                    </span>
                   </div>
                 </div>
+                {isThread && email.messageCount > 1 && (
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 bg-gradient-to-br from-indigo-100 to-indigo-200 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <ModernIcon type="email" size={3} color="#6366f1" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide block">Thread</span>
+                      <span className="text-sm text-slate-900">
+                        {email.messageCount} message{email.messageCount > 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -467,8 +492,81 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
                             </div>
                           </div>
                         </div>
-                        <div className="text-xs text-slate-500 whitespace-nowrap ml-4">
-                          {formatDate(message.date)}
+                        <div className="flex items-center gap-2">
+                          <div className="text-xs text-slate-500 whitespace-nowrap mr-2">
+                            {formatDate(message.date)}
+                          </div>
+                          
+                          {/* Individual Message Action Buttons */}
+                          {isThread && (
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => setShowQuickReply(true)}
+                                className="group relative p-2 rounded-lg backdrop-blur-sm bg-gradient-to-br from-green-400/20 to-green-600/20 border border-green-300/30 hover:from-green-400/30 hover:to-green-600/30 hover:border-green-400/50 transition-all duration-300 shadow-sm hover:shadow-green-200/50 hover:scale-105 flex items-center justify-center"
+                                title="Reply to this message"
+                              >
+                                <ModernIcon 
+                                  type="reply" 
+                                  size={12} 
+                                  color="#16a34a"
+                                  className="group-hover:scale-110 transition-transform duration-200"
+                                />
+                              </button>
+                              {message.isArchived ? (
+                                <button
+                                  onClick={() => onUnarchive(message._id)}
+                                  className="group relative p-2 rounded-lg backdrop-blur-sm bg-gradient-to-br from-blue-400/20 to-blue-600/20 border border-blue-300/30 hover:from-blue-400/30 hover:to-blue-600/30 hover:border-blue-400/50 transition-all duration-300 shadow-sm hover:shadow-blue-200/50 hover:scale-105 flex items-center justify-center"
+                                  title="Unarchive this message"
+                                >
+                                  <svg className="w-3 h-3 text-blue-600 group-hover:scale-110 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                                  </svg>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => onArchive(message._id)}
+                                  className="group relative p-2 rounded-lg backdrop-blur-sm bg-gradient-to-br from-orange-400/20 to-orange-600/20 border border-orange-300/30 hover:from-orange-400/30 hover:to-orange-600/30 hover:border-orange-400/50 transition-all duration-300 shadow-sm hover:shadow-orange-200/50 hover:scale-105 flex items-center justify-center"
+                                  title="Archive this message"
+                                >
+                                  <ModernIcon 
+                                    type="archive" 
+                                    size={12} 
+                                    color="#ea580c"
+                                    className="group-hover:scale-110 transition-transform duration-200"
+                                  />
+                                </button>
+                              )}
+                              <button
+                                onClick={async () => {
+                                  // Optimistically remove message from thread view
+                                  setThreadMessages(prev => prev.filter(msg => msg._id !== message._id))
+                                  
+                                  // Call parent delete handler
+                                  if (onDelete) {
+                                    onDelete(message._id)
+                                  }
+                                  
+                                  // Refresh thread after a short delay to ensure deletion is complete
+                                  if (onDeleteSuccess && email && email.isThread) {
+                                    setTimeout(() => {
+                                      if (onDeleteSuccess) {
+                                        onDeleteSuccess()
+                                      }
+                                    }, 1000)
+                                  }
+                                }}
+                                className="group relative p-2 rounded-lg backdrop-blur-sm bg-gradient-to-br from-red-400/20 to-red-600/20 border border-red-300/30 hover:from-red-400/30 hover:to-red-600/30 hover:border-red-400/50 transition-all duration-300 shadow-sm hover:shadow-red-200/50 hover:scale-105 flex items-center justify-center"
+                                title="Delete this message"
+                              >
+                                <ModernIcon 
+                                  type="delete" 
+                                  size={12} 
+                                  color="#dc2626"
+                                  className="group-hover:scale-110 transition-transform duration-200"
+                                />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
 
