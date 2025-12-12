@@ -1,0 +1,83 @@
+{
+  "extraction_date": "2025-01-21",
+  "emails_analyzed": 4,
+  "new_keywords": {
+    "primary_keywords": [
+      "cohort",
+      "e-verifiable",
+      "emobility",
+      "evend",
+      "swayam-nptel",
+      "weeks"
+    ],
+    "phrases": [
+      "12 weeks",
+      "19 january 2026",
+      "2.5 to 4 hours of videos",
+      "afternoon session",
+      "afternoon session 2pm to 5pm",
+      "announcement group",
+      "ask a question",
+      "assignment score",
+      "assignment submission",
+      "average assignment score",
+      "best 8 assignments",
+      "certificate criteria",
+      "certification exam",
+      "certified professionals",
+      "course duration",
+      "course instructor",
+      "course instructors",
+      "digital transformation strategy",
+      "discussion forum",
+      "due date",
+      "ev journey",
+      "exam centre",
+      "exam centres",
+      "exam date",
+      "exam registration",
+      "exam score",
+      "final score",
+      "hall ticket",
+      "hall tickets",
+      "hard copies",
+      "hours of videos",
+      "iit madras",
+      "iit roorkee",
+      "leadership and team effectiveness",
+      "leadership essentials",
+      "morning session",
+      "morning session 9am to 12 noon",
+      "newsletter announce",
+      "online course",
+      "online courses and certification",
+      "passing criteria",
+      "proctored exam",
+      "swayam nptel",
+      "teaching assistant",
+      "teaching assistants",
+      "team effectiveness",
+      "verified certificate",
+      "weekly assignment"
+    ],
+    "topics": [
+      "Course duration",
+      "Digital Transformation Strategy",
+      "Lead from IITM Welcome to NPTEL Online Course",
+      "Leadership Essentials",
+      "NPTEL Newsletter",
+      "evend",
+      "iit roorkee"
+    ]
+  },
+  "statistics": {
+    "new_primary_keywords": 6,
+    "new_phrases": 48,
+    "new_topics": 7
+  },
+  "existing_keywords_count": {
+    "primary": 38,
+    "secondary": 47,
+    "phrases": 40
+  }
+}

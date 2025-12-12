@@ -38,7 +38,15 @@ export const KEYWORD_CATEGORIES = {
       'mumbai', 'delhi', 'gurgaon', 'noida', 'jaipur', 'kolkata', 'tcs nqt',
       'capgemini', 'lti', 'mindtree', 'mphasis', 'hcl', 'tcs digital', 'tcs ninja',
       'infosys spec', 'infosys power', 'wipro elite', 'wipro turbo', 'co-cubes',
-      'amcat', 'e-litmus', 'placement cell', 'tpo', 'training and placement'
+      'amcat', 'e-litmus', 'placement cell', 'tpo', 'training and placement',
+      'candidate', 'applicant', 'shortlist', 'shortlisted', 'selected', 'rejected',
+      'pending', 'under review', 'screening', 'profile', 'qualification',
+      'eligibility', 'requirement', 'prerequisite', 'experience', 'fresher',
+      'experienced', 'technical skills', 'communication skills', 'soft skills',
+      'application', 'candidate', 'next steps', 'reach out', 'follow up',
+      'document', 'paperwork', 'form', 'formality', 'clearance', 'address',
+      'contact', 'location', 'venue', 'schedule', 'timing', 'round', 'stage',
+      'level', 'process', 'procedure'
     ],
     phrases: [
       'placement drive', 'job opportunity', 'apply now', 'interview round', 
@@ -61,13 +69,23 @@ export const KEYWORD_CATEGORIES = {
       'aptitude assessment', 'coding challenge', 'technical assessment',
       'group discussion round', 'presentation round', 'case study round',
       'resume shortlisting round', 'pre-placement talk', 'company presentation',
-      'walk-in interview', 'off-campus drive', 'on-campus drive'
+      'walk-in interview', 'off-campus drive', 'on-campus drive',
+      'we are pleased to inform', 'congratulations you have been',
+      'thank you for your interest', 'we regret to inform',
+      'unfortunately we cannot', 'thank you for applying',
+      'we have reviewed your application', 'please find attached',
+      'looking forward to hearing', 'please confirm your attendance',
+      'we look forward to meeting', 'interview call letter',
+      'job description attached', 'kindly revert', 'please revert',
+      'awaiting your response', 'please confirm'
     ],
     exclusionKeywords: [
       'nptel course', 'nptel exam', 'hod notice', 'professor email', 'academic course',
       'servicenow', 'service-now', 'nowlearning', 'service now university', 'academic partnerships',
       'certified application developer', 'cad certification', 'dr.', 'professor', 'assistant professor',
-      'associate professor', 'faculty', 'hod', 'head of department'
+      'associate professor', 'faculty', 'hod', 'head of department',
+      'security alert', 'security notification', 'google security', 'account security', 'sign-in',
+      'new sign-in', 'suspicious activity', 'unusual activity', 'security checkup'
     ],
     patterns: {
       senderDomains: [
@@ -83,10 +101,12 @@ export const KEYWORD_CATEGORIES = {
       ],
       // Exclude specific sender domains/names that should not match Placement
       excludeDomains: [
-        'service-now.com', 'servicenow.com', 'nowlearning.com'
+        'service-now.com', 'servicenow.com', 'nowlearning.com',
+        'accounts.google.com', 'mail.google.com', 'google.com'
       ],
       excludeNames: [
-        'ServiceNow', 'ServiceNow University', 'nowlearning'
+        'ServiceNow', 'ServiceNow University', 'nowlearning',
+        'Google', 'Google Account', 'Google Security', 'Gmail Security', 'Security Alert'
       ]
     }
   },
@@ -101,7 +121,8 @@ export const KEYWORD_CATEGORIES = {
       'weekly assignment', 'proctored exam', 'end term exam', 'mid term exam',
       'certificate exam', 'exam registration', 'exam date', 'course completion',
       'verified certificate', 'e-certificate', 'digital certificate', 'joint certification',
-      'scmpro', 'star badges', 'lifelong learning'
+      'scmpro', 'star badges', 'lifelong learning', 'cohort', 'evend', 'emobility',
+      'swayam-nptel', 'weeks', 'e-verifiable', 'iit roorkee'
     ],
     secondaryKeywords: [
       'star badges', 'scmpro', 'joint certification', 'cii', 
@@ -127,7 +148,21 @@ export const KEYWORD_CATEGORIES = {
       'proctored exam registration', 'exam registration open', 'hall ticket download',
       'course completion certificate', 'verified certificate download',
       'digital certificate', 'joint certification program', 'scmpro certification',
-      'iit madras nptel', 'swayam nptel platform'
+      'iit madras nptel', 'swayam nptel platform',
+      'enroll now', 'register for course', 'start learning',
+      'watch lecture videos', 'complete assignments',
+      'appear for exam', 'download certificate',
+      'course starts', 'registration closes', 'last date to enroll',
+      'leadership and team effectiveness', 'digital transformation strategy',
+      'leadership essentials', 'ev journey', 'certified professionals',
+      'announcement group', 'ask a question', 'assignment score',
+      'average assignment score', 'best 8 assignments', 'certificate criteria',
+      'course duration', 'course instructor', 'discussion forum',
+      'exam centre', 'exam centres', 'exam score', 'final score',
+      'hall ticket', 'hall tickets', 'hours of videos', 'iit roorkee',
+      'morning session', 'afternoon session', 'online courses and certification',
+      'passing criteria', 'teaching assistant', 'teaching assistants',
+      'weekly assignment', 'newsletter announce', 'swayam nptel'
     ],
     exclusionKeywords: [
       'placement drive', 'job opportunity', 'hod notice', 'professor email',
@@ -141,7 +176,7 @@ export const KEYWORD_CATEGORIES = {
       ],
       senderNames: [
         'NPTEL', 'NPTEL Team', 'IIT Madras', 'NPTEL Online', 'NPTEL Newsletter',
-        'Swayam NPTEL', 'Online Courses'
+        'Swayam NPTEL', 'Online Courses', 'newsletter-announce'
       ],
       // Exclude specific sender domains/names that should not match NPTEL
       excludeDomains: [
@@ -184,7 +219,12 @@ export const KEYWORD_CATEGORIES = {
       'respected hod sir', 'dear hod', 'hod circular', 'department circular',
       'all students are requested', 'all students are informed',
       'mandatory for all students', 'all faculty members are requested',
-      'reschedule evaluation date', 'meeting with hod', 'hod meeting'
+      'reschedule evaluation date', 'meeting with hod', 'hod meeting',
+      'all students are hereby informed', 'this is to inform all',
+      'all faculty members are requested to', 'kind attention of all',
+      'it is mandatory for all', 'strict compliance required',
+      'please note that', 'important notice for all',
+      'urgent attention required', 'immediate action needed'
     ],
     exclusionKeywords: ['placement drive', 'job opportunity', 'nptel course', 'promotion offer'],
     patterns: {
@@ -219,7 +259,12 @@ export const KEYWORD_CATEGORIES = {
       // Only include generic terms when combined with Sharda context
       'ezone', 'e-zone', 'portal', 'login', 'password', 'otp',
       'one time password', 'password reset', 'account verification',
-      'login credentials', 'portal credentials', 'verification code'
+      'login credentials', 'portal credentials', 'verification code',
+      'access', 'account', 'activated', 'authentication', 'authorization',
+      'blocked', 'credentials', 'enrollment number', 'expired', 'invalid',
+      'locked', 'maintenance', 'registration number', 'roll number',
+      'session', 'student id', 'system', 'timeout', 'update', 'user',
+      'user id', 'username', 'verified'
     ],
     phrases: [
       'sharda e-zone', 'one time password', 'valid for today',
@@ -231,12 +276,18 @@ export const KEYWORD_CATEGORIES = {
       'portal access granted', 'your portal credentials', 'login details',
       'dear user welcome to sharda e-zone', 'your one-time password',
       'valid for today only', 'accessing sharda e-zone portal',
-      'portal maintenance scheduled', 'portal system update'
+      'portal maintenance scheduled', 'portal system update',
+      'your login credentials', 'your one-time password is',
+      'valid for today', 'please keep this secure',
+      'do not share', 'if you did not request',
+      'please ignore', 'portal will be under maintenance',
+      'we apologize for inconvenience'
     ],
     exclusionKeywords: [
       'placement', 'nptel', 'job', 'interview',
       'chatgpt', 'openai', 'chat gpt', 'open ai', 
-      'noreply@email.openai.com', 'email.openai.com'
+      'noreply@email.openai.com', 'email.openai.com',
+      'geeksforgeeks', 'geeks for geeks', 'gfg', 'geeksforgeeks.org'
     ],
     patterns: {
       senderDomains: [
@@ -249,10 +300,12 @@ export const KEYWORD_CATEGORIES = {
       ],
       // Exclude specific sender domains/names that should not match E-Zone
       excludeDomains: [
-        'email.openai.com', 'openai.com', 'chatgpt.com'
+        'email.openai.com', 'openai.com', 'chatgpt.com',
+        'geeksforgeeks.org', 'geeksforgeeks.com'
       ],
       excludeNames: [
-        'ChatGPT', 'OpenAI', 'ChatGPT Team'
+        'ChatGPT', 'OpenAI', 'ChatGPT Team',
+        'GeeksforGeeks', 'Geeks for Geeks', 'GfG'
       ]
     }
   },
@@ -290,7 +343,11 @@ export const KEYWORD_CATEGORIES = {
       'free health screening', 'health awareness program', 'wellness program',
       'doctor consultation offer', 'medical checkup offer', 'health package deal',
       'diagnostic test offer', 'lab test discount', 'healthcare services',
-      'shardacare healthcity', 'healthcare promotions', 'medical promotions'
+      'shardacare healthcity', 'healthcare promotions', 'medical promotions',
+      'limited time offer', 'special discount',
+      'save money', 'don\'t miss out', 'act now',
+      'limited stock', 'while stocks last',
+      'terms and conditions apply', 'valid till stock lasts'
     ],
     exclusionKeywords: ['placement drive', 'nptel course', 'hod notice', 'exam schedule'],
     patterns: {
@@ -349,7 +406,13 @@ export const KEYWORD_CATEGORIES = {
       'quiz competition', 'dance competition', 'singing competition',
       'cultural fest', 'tech fest', 'annual fest', 'college fest',
       'tree plantation drive', 'social awareness program', 'community service',
-      'volunteer opportunity', 'nss activity', 'nss program'
+      'volunteer opportunity', 'nss activity', 'nss program',
+      'we cordially invite', 'you are invited to',
+      'please join us', 'be a part of', 'don\'t miss',
+      'register today', 'limited seats available',
+      'first come first serve', 'registration mandatory',
+      'all are welcome', 'open for all', 'free entry',
+      'refreshments will be provided', 'certificate will be provided'
     ],
     exclusionKeywords: ['placement drive', 'job opportunity', 'nptel course', 'exam schedule'],
     patterns: {
@@ -408,7 +471,15 @@ export const KEYWORD_CATEGORIES = {
       'meet me in', 'office cabin', 'consultation hours', 'project guidance meeting',
       'thesis guidance', 'research discussion', 'data uploaded on portal',
       'check your attendance', 'verify attendance', 'mark attendance',
-      'attendance short list', 'students with low attendance'
+      'attendance short list', 'students with low attendance',
+      'submit before', 'last date for submission',
+      'late submission will not be accepted',
+      'strictly adhere to deadline', 'kindly submit',
+      'please ensure submission', 'evaluation criteria',
+      'grading scheme', 'attendance is mandatory',
+      'minimum attendance required', 'students with attendance below',
+      'meet me during office hours', 'doubt clearing session',
+      'for any queries contact', 'please revert'
     ],
     exclusionKeywords: ['placement drive', 'job opportunity', 'nptel course', 'promotion offer'],
     patterns: {
@@ -441,7 +512,15 @@ export const KEYWORD_CATEGORIES = {
       'past due', 'assigned to you', 'learning content',
       // OpenAI/ChatGPT keywords
       'chatgpt', 'openai', 'chat gpt', 'open ai', 'chatgpt go', 'chatgpt business',
-      'ai tools', 'advanced access', 'free for', 'upgrade now'
+      'ai tools', 'advanced access', 'free for', 'upgrade now',
+      // Google security notifications
+      'google security', 'security alert', 'google account security', 'sign-in attempt',
+      'new sign-in', 'suspicious activity', 'unusual activity', 'account activity',
+      'security notification', 'google security alert', 'account security',
+      'sign-in blocked', 'password changed', 'account recovery', 'security checkup',
+      'two-factor authentication', '2-step verification', 'verification code',
+      'device sign-in', 'new device', 'unrecognized device', 'login attempt',
+      'privacy reminder', 'security update', 'account access', 'suspicious sign-in'
     ],
     secondaryKeywords: [
       // Generic system notifications
@@ -450,7 +529,16 @@ export const KEYWORD_CATEGORIES = {
       // ChatGPT/OpenAI related
       'chatgpt team', 'openai team', 'noreply@email.openai.com',
       'extended file uploads', 'image creation', 'longer memory',
-      'try chatgpt', 'free for 12 months', 'chatgpt logo'
+      'try chatgpt', 'free for 12 months', 'chatgpt logo',
+      // Google security related
+      'google', 'gmail security', 'account security', 'security',
+      'alert', 'notification', 'sign-in', 'login', 'authentication',
+      'verification', 'device', 'activity', 'suspicious', 'unusual',
+      'blocked', 'access', 'password', 'recovery', 'checkup',
+      'privacy', 'update', 'reminder', 'attempt', 'recognized',
+      'unrecognized', 'new', 'recent', 'activity', 'location',
+      'ip address', 'browser', 'app', 'device', 'security code',
+      'backup code', 'recovery email', 'security question'
     ],
     phrases: [
       'service now university', 'service-now.com', 'servicenow.com',
@@ -459,19 +547,41 @@ export const KEYWORD_CATEGORIES = {
       'free chatgpt go for', 'chatgpt go for 12 months',
       'noreply@email.openai.com', 'email.openai.com',
       'upgrade now for advanced access', 'try chatgpt go free',
-      'chatgpt business logo', 'unlock popular features'
+      'chatgpt business logo', 'unlock popular features',
+      // Google security notification phrases
+      'google security alert', 'security alert for your account',
+      'new sign-in to your account', 'suspicious sign-in attempt',
+      'unusual activity detected', 'sign-in from new device',
+      'new device signed in', 'unrecognized sign-in attempt',
+      'your password was changed', 'account recovery request',
+      'security checkup reminder', 'privacy reminder from google',
+      'two-factor authentication', '2-step verification code',
+      'verify your identity', 'secure your account',
+      'review your account activity', 'check your account security',
+      'someone tried to sign in', 'sign-in was blocked',
+      'account access notification', 'security update for your account',
+      'google account security', 'gmail security notification'
     ],
     exclusionKeywords: [],
     patterns: {
       senderDomains: [
         'service-now.com', 'servicenow.com', 'nowlearning.com',
         'signonmail.servicenow.com',
-        'email.openai.com', 'openai.com', 'chatgpt.com'
+        'email.openai.com', 'openai.com', 'chatgpt.com',
+        // Google security notification domains
+        'accounts.google.com', 'mail.google.com', 'gmail.com',
+        'google.com', 'googlemail.com', 'no-reply@accounts.google.com',
+        'noreply@accounts.google.com', 'security-noreply@google.com',
+        'accounts-noreply@google.com', 'google-noreply@google.com'
       ],
       senderNames: [
         'ServiceNow University', 'ServiceNow', 'nowlearning',
         'ServiceNow Learning', 'ServiceNow Training',
-        'ChatGPT', 'OpenAI', 'ChatGPT Team', 'OpenAI Team'
+        'ChatGPT', 'OpenAI', 'ChatGPT Team', 'OpenAI Team',
+        // Google security notification senders
+        'Google', 'Google Account', 'Google Security', 'Gmail Security',
+        'Google Account Security', 'Security Alert', 'Google Notifications',
+        'Account Security', 'Google Account Team', 'Security Team'
       ]
     }
   }

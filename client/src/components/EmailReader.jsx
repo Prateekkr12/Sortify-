@@ -1,11 +1,90 @@
-import React, { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import React, { useState, useEffect, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import ModernIcon from './ModernIcon'
 import QuickReply from './QuickReply'
 import emailService from '../services/emailService'
 import { getCategoryLightColors } from '../utils/categoryColors'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+
+// Parse email addresses from a string (can be comma or semicolon separated)
+// Handles both formats: "Name <email@example.com>" and "email@example.com"
+const parseEmailAddresses = (emailString) => {
+  if (!emailString) return []
+  
+  // Split by comma or semicolon
+  const parts = emailString.split(/[,;]/).map(addr => addr.trim()).filter(addr => addr.length > 0)
+  
+  // Return as is (each part may contain angle brackets or be a plain email)
+  return parts
+}
+
+// Component to display email addresses with dropdown for multiple
+const EmailAddressList = ({ addresses }) => {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const parsedAddresses = useMemo(() => parseEmailAddresses(addresses), [addresses])
+  
+  if (parsedAddresses.length === 0) {
+    return <span className="text-sm text-slate-900 break-words leading-relaxed">—</span>
+  }
+  
+  if (parsedAddresses.length === 1) {
+    return <span className="text-sm text-slate-900 break-words leading-relaxed">{parsedAddresses[0]}</span>
+  }
+  
+  const firstEmail = parsedAddresses[0]
+  const remainingEmails = parsedAddresses.slice(1)
+  const count = remainingEmails.length
+  
+  return (
+    <div className="space-y-1">
+      <div className="flex items-start gap-2">
+        <span className="text-sm text-slate-900 break-words leading-relaxed flex-1">{firstEmail}</span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setIsExpanded(prev => !prev)
+          }}
+          onMouseDown={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          className="flex-shrink-0 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium px-2 py-1 rounded-md hover:bg-blue-50 active:bg-blue-100 transition-colors border border-blue-200 hover:border-blue-300 cursor-pointer z-10"
+          title={isExpanded ? 'Hide recipients' : `Show ${count} more recipient${count > 1 ? 's' : ''}`}
+        >
+          <svg 
+            className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} 
+            fill="none" 
+            stroke="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+          <span>{count}</span>
+        </button>
+      </div>
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="ml-0 pl-4 border-l-2 border-slate-200 space-y-1.5 mt-2 overflow-hidden"
+          >
+            {remainingEmails.map((email, index) => (
+              <div key={index} className="text-sm text-slate-700 break-words leading-relaxed py-0.5">
+                {email}
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
 
 const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelete, onExport, onClose, onReplySuccess, onDeleteSuccess, loading = false }) => {
   const [showQuickReply, setShowQuickReply] = useState(false)
@@ -176,6 +255,107 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
     return new Date(dateString).toLocaleString()
   }
 
+  // Process email body to detect and collapse long recipient lists
+  const processEmailBody = (bodyText) => {
+    if (!bodyText) return bodyText
+    
+    // Pattern to match email addresses (supports both formats: "Name <email>" and "email")
+    const emailPattern = /[\w\s<>().]+@[\w.]+[\w]+/g
+    
+    // Pattern to match "to:" or "To:" followed by email addresses
+    const toPattern = /^(to|To|TO):\s*([\s\S]*?)(?=\n\n|\n[A-Z][a-z]+:|$)/m
+    
+    const match = bodyText.match(toPattern)
+    if (match && match[2]) {
+      const recipientsText = match[2].trim()
+      const emailMatches = recipientsText.match(emailPattern)
+      
+      // If we found many emails (more than 5), collapse them
+      if (emailMatches && emailMatches.length > 5) {
+        const firstEmail = emailMatches[0]
+        const remainingEmails = emailMatches.slice(1)
+        
+        // Replace the long list with our collapsible component
+        return (
+          <div className="space-y-4">
+            <EmailBodyRecipientList 
+              prefix={match[1]}
+              firstEmail={firstEmail}
+              remainingEmails={remainingEmails}
+              originalText={recipientsText}
+            />
+            <div className="whitespace-pre-wrap text-slate-700">
+              {bodyText.replace(match[0], '').trim()}
+            </div>
+          </div>
+        )
+      }
+    }
+    
+    // If no pattern match or few emails, return as normal
+    return (
+      <div className="whitespace-pre-wrap text-slate-700">
+        {bodyText}
+      </div>
+    )
+  }
+
+  // Component for collapsible recipient lists in email body
+  const EmailBodyRecipientList = ({ prefix, firstEmail, remainingEmails, originalText }) => {
+    const [isExpanded, setIsExpanded] = useState(false)
+    const count = remainingEmails.length
+    
+    return (
+      <div className="space-y-1 border-b border-slate-200 pb-3 mb-3">
+        <div className="flex items-start gap-2">
+          <span className="text-sm font-medium text-slate-600">{prefix}:</span>
+          <span className="text-sm text-slate-700 flex-1">{firstEmail}</span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setIsExpanded(!isExpanded)
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+            className="flex-shrink-0 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium px-2 py-1 rounded-md hover:bg-blue-50 active:bg-blue-100 transition-colors border border-blue-200 hover:border-blue-300 cursor-pointer z-10"
+            title={isExpanded ? 'Hide recipients' : `Show ${count} more recipient${count > 1 ? 's' : ''}`}
+          >
+            <svg 
+              className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+            <span>{count}</span>
+          </button>
+        </div>
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="ml-8 pl-4 border-l-2 border-slate-200 space-y-1 mt-2 overflow-hidden"
+            >
+              {remainingEmails.map((email, index) => (
+                <div key={index} className="text-sm text-slate-700 break-words leading-relaxed py-0.5">
+                  {email}
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    )
+  }
+
   const renderMessageBody = (message) => {
     if (message.html) {
       return (
@@ -185,11 +365,8 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
         />
       )
     } else if (message.body || message.text) {
-      return (
-        <div className="whitespace-pre-wrap text-slate-700">
-          {message.body || message.text}
-        </div>
-      )
+      const bodyText = message.body || message.text
+      return processEmailBody(bodyText)
     } else {
       return (
         <div className="text-slate-600 italic">
@@ -386,11 +563,11 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
                   </div>
                   <div className="min-w-0 flex-1">
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide block">From</span>
-                    <span className="text-sm text-slate-900 break-words leading-relaxed">
-                      {isThread && threadMessages.length > 0 
+                    <EmailAddressList
+                      addresses={isThread && threadMessages.length > 0 
                         ? threadMessages[threadMessages.length - 1].from || email.from
                         : email.from}
-                    </span>
+                    />
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -399,11 +576,11 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
                   </div>
                   <div className="min-w-0 flex-1">
                     <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide block">To</span>
-                    <span className="text-sm text-slate-900 break-words leading-relaxed">
-                      {isThread && threadMessages.length > 0 
+                    <EmailAddressList
+                      addresses={isThread && threadMessages.length > 0 
                         ? threadMessages[threadMessages.length - 1].to || email.to
                         : email.to}
-                    </span>
+                    />
                   </div>
                 </div>
               </div>
@@ -488,7 +665,7 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
                               {message.from}
                             </div>
                             <div className="text-xs text-slate-500 mt-0.5">
-                              to {message.to}
+                              to <EmailAddressList addresses={message.to} />
                             </div>
                           </div>
                         </div>
