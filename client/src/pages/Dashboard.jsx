@@ -1081,7 +1081,15 @@ const Dashboard = () => {
       const response = await api.post('/emails/gmail/full-sync')
       
       if (response.data.success) {
-        toast.success('📥 Full sync started! Fetching all 6,000+ emails from Gmail. This will take 15-30 minutes.', {
+        // Get time estimate from response
+        const timeEstimate = response.data.estimatedTimeMinutes || { min: 15, max: 30 }
+        
+        // Format time estimate
+        const timeText = timeEstimate.min === timeEstimate.max 
+          ? `about ${timeEstimate.min} minutes`
+          : `${timeEstimate.min}-${timeEstimate.max} minutes`
+        
+        toast.success(`📥 Full sync started! All emails will be synced in ${timeText}.`, {
           duration: 6000
         })
         
@@ -1091,8 +1099,9 @@ const Dashboard = () => {
           await fetchEmails(true)
         }, 10000)
         
-        // Clear after 30 minutes
-        setTimeout(() => clearInterval(pollInterval), 1800000)
+        // Clear after max time + buffer
+        const maxTimeMs = (timeEstimate.max + 5) * 60 * 1000
+        setTimeout(() => clearInterval(pollInterval), maxTimeMs)
       }
     } catch (error) {
       console.error('❌ Full sync error:', error)

@@ -14,7 +14,7 @@ import {
   clearCategoryCache
 } from '../services/categoryService.js'
 import Email from '../models/Email.js'
-import Category from '../models/Category.js'
+import Category, { DEFAULT_CATEGORY_NAMES } from '../models/Category.js'
 import { classifyEmail } from '../services/classificationService.js'
 import notificationService from '../services/notificationService.js'
 import { extractPatternsForCategory } from '../services/patternExtractionService.js'
@@ -161,6 +161,14 @@ router.post('/categories', protect, asyncHandler(async (req, res) => {
     }
 
     const categoryName = name.trim()
+    
+    // CRITICAL: Only allow predefined categories
+    if (!DEFAULT_CATEGORY_NAMES.includes(categoryName)) {
+      return res.status(400).json({
+        success: false,
+        message: `Only predefined categories are allowed: ${DEFAULT_CATEGORY_NAMES.join(', ')}`
+      })
+    }
     
     // Validate category name (no special characters, reasonable length)
     if (categoryName.length < 2 || categoryName.length > 50) {
@@ -527,6 +535,16 @@ router.delete('/categories/:id', protect, asyncHandler(async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Category not found'
+      })
+    }
+
+    // Prevent deletion of default categories
+    // Note: findCategoryById returns a plain object, so we need to check the actual category from DB
+    const categoryDoc = await Category.findOne({ _id: id, userId })
+    if (categoryDoc && categoryDoc.isDefault === true) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete default categories. Only custom categories can be deleted.'
       })
     }
 

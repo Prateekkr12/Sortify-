@@ -299,6 +299,29 @@ router.post('/gmail/full-sync', protect, asyncHandler(async (req, res) => {
 
     console.log(`🚀 Starting full historical sync for user: ${user.email}`)
 
+    // Get quick estimate of total emails before starting sync
+    let estimatedEmailCount = 0
+    try {
+      const gmail = getGmailClient(user.gmailAccessToken, user.gmailRefreshToken)
+      const estimateResponse = await gmail.users.messages.list({
+        userId: 'me',
+        maxResults: 1,
+        q: 'in:inbox'
+      })
+      // Gmail API provides resultSizeEstimate which is an approximate count
+      estimatedEmailCount = estimateResponse.data.resultSizeEstimate || 0
+      console.log(`📊 Estimated email count: ${estimatedEmailCount}`)
+    } catch (error) {
+      console.error('⚠️ Could not get email estimate:', error.message)
+      // Fallback: use current stats if available
+      const currentCount = await Email.countDocuments({ 
+        userId: user._id,
+        provider: 'gmail',
+        isDeleted: false
+      })
+      estimatedEmailCount = currentCount > 0 ? Math.max(currentCount, 100) : 100
+    }
+
     // Import full sync function
     const { fullHistoricalSync } = await import('../services/gmailSyncService.js')
 
@@ -336,10 +359,19 @@ router.post('/gmail/full-sync', protect, asyncHandler(async (req, res) => {
       })
     })
 
-    // Return immediate response
+    // Calculate estimated time based on email count
+    // Rough estimate: ~200-300 emails per minute (conservative)
+    const emailsPerMinute = 250
+    const estimatedMinutes = Math.ceil(estimatedEmailCount / emailsPerMinute)
+    const minMinutes = Math.max(5, Math.floor(estimatedMinutes * 0.6)) // 60% of estimate
+    const maxMinutes = Math.max(10, Math.ceil(estimatedMinutes * 1.4)) // 140% of estimate
+
+    // Return immediate response with estimate
     res.json({
       success: true,
       message: 'Full historical sync started',
+      estimatedEmailCount,
+      estimatedTimeMinutes: { min: minMinutes, max: maxMinutes },
       note: 'This will take 15-30 minutes to fetch all emails from Gmail. Check stats for progress.'
     })
 

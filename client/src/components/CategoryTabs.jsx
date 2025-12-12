@@ -17,51 +17,74 @@ const CategoryTabs = ({ value, onChange, refreshTrigger }) => {
       const response = await api.get('/realtime/categories')
       
       if (response.data && response.data.categories) {
-        const serverCategories = response.data.categories.map(category => ({
-          id: category.name,
-          label: category.name,
-          color: getCategoryColor(category.name, 'hex')
-        }))
+        // Server already returns categories in correct order (defaults first, then custom)
+        // Separate default and custom categories
+        const defaultCategories = []
+        const customCategories = []
         
-        // Always include "All" at the beginning and "Other" at the end
+        response.data.categories.forEach(category => {
+          const categoryData = {
+            id: category.name,
+            label: category.name,
+            color: getCategoryColor(category.name, 'hex'),
+            isDefault: category.isDefault || false
+          }
+          
+          if (category.isDefault) {
+            defaultCategories.push(categoryData)
+          } else {
+            customCategories.push(categoryData)
+          }
+        })
+        
+        // Always include "All" at the beginning
         const allCategory = { id: 'All', label: 'All', color: '#64748b' }
         
-        // Find "Other" category and ensure it's always at the end
-        const otherIndex = serverCategories.findIndex(cat => cat.id === 'Other')
+        // Server already returns in correct order, but ensure "Other" is last among defaults
+        const otherIndex = defaultCategories.findIndex(cat => cat.id === 'Other')
         let otherCategory
-        let filteredServerCategories = serverCategories
+        let defaultCategoriesWithoutOther = defaultCategories
         
         if (otherIndex >= 0) {
-          otherCategory = serverCategories[otherIndex]
-          filteredServerCategories = serverCategories.filter(cat => cat.id !== 'Other')
+          otherCategory = defaultCategories[otherIndex]
+          defaultCategoriesWithoutOther = defaultCategories.filter(cat => cat.id !== 'Other')
         } else {
           // Create "Other" category if it doesn't exist (fallback)
-          otherCategory = { id: 'Other', label: 'Other', color: '#64748b' }
+          otherCategory = { id: 'Other', label: 'Other', color: '#64748b', isDefault: true }
         }
         
-        setCategories([allCategory, ...filteredServerCategories, otherCategory])
-        console.log('✅ Categories loaded dynamically:', [allCategory, ...filteredServerCategories, otherCategory])
+        // Final order: All, default categories (Other last), then custom categories
+        const finalCategories = [allCategory, ...defaultCategoriesWithoutOther, otherCategory, ...customCategories]
+        setCategories(finalCategories)
+        console.log('✅ Categories loaded dynamically:', finalCategories)
       } else {
         console.warn('⚠️ No categories data received, using fallback')
+        // Fallback: Use the 9 fixed categories
         setCategories([
           { id: 'All', label: 'All', color: '#64748b' },
-          { id: 'Academic', label: 'Academic', color: '#8fa4c7' },
-          { id: 'Promotions', label: 'Promotions', color: '#c09999' },
-          { id: 'Placement', label: 'Placement', color: '#a8b5a0' },
-          { id: 'Spam', label: 'Spam', color: '#d4b5b5' },
-          { id: 'Other', label: 'Other', color: '#64748b' }
+          { id: 'Placement', label: 'Placement', color: '#3B82F6' },
+          { id: 'NPTEL', label: 'NPTEL', color: '#8B5CF6' },
+          { id: 'HOD', label: 'HOD', color: '#EF4444' },
+          { id: 'E-Zone', label: 'E-Zone', color: '#10B981' },
+          { id: 'Promotions', label: 'Promotions', color: '#F59E0B' },
+          { id: 'Whats happening', label: 'Whats happening', color: '#EC4899' },
+          { id: 'Professor', label: 'Professor', color: '#6366F1' },
+          { id: 'Other', label: 'Other', color: '#6B7280' }
         ])
       }
     } catch (error) {
       console.error('❌ Error fetching categories:', error)
-      // Use fallback categories
+      // Use fallback categories (the 9 fixed categories)
       setCategories([
         { id: 'All', label: 'All', color: '#64748b' },
-        { id: 'Academic', label: 'Academic', color: '#8fa4c7' },
-        { id: 'Promotions', label: 'Promotions', color: '#c09999' },
-        { id: 'Placement', label: 'Placement', color: '#a8b5a0' },
-        { id: 'Spam', label: 'Spam', color: '#d4b5b5' },
-        { id: 'Other', label: 'Other', color: '#64748b' }
+        { id: 'Placement', label: 'Placement', color: '#3B82F6' },
+        { id: 'NPTEL', label: 'NPTEL', color: '#8B5CF6' },
+        { id: 'HOD', label: 'HOD', color: '#EF4444' },
+        { id: 'E-Zone', label: 'E-Zone', color: '#10B981' },
+        { id: 'Promotions', label: 'Promotions', color: '#F59E0B' },
+        { id: 'Whats happening', label: 'Whats happening', color: '#EC4899' },
+        { id: 'Professor', label: 'Professor', color: '#6366F1' },
+        { id: 'Other', label: 'Other', color: '#6B7280' }
       ])
     } finally {
       setLoading(false)

@@ -1,6 +1,6 @@
 // Category service for managing user-specific categories with database persistence
 import mongoose from 'mongoose'
-import Category from '../models/Category.js'
+import Category, { DEFAULT_CATEGORY_NAMES } from '../models/Category.js'
 import Email from '../models/Email.js'
 import { startReclassificationJob } from './emailReclassificationService.js'
 
@@ -53,7 +53,7 @@ export const getCategories = async (userId) => {
     // Convert userId to ObjectId
     const userIdObj = toObjectId(userId)
 
-    // Ensure user has default categories
+    // Ensure user has default categories (already returns in correct order)
     const allCategories = await Category.getOrCreateDefaults(userIdObj)
     
     // Filter to only active categories (matches previous analytics endpoint behavior)
@@ -69,18 +69,41 @@ export const getCategories = async (userId) => {
       emailCounts.map(item => [item._id, item.count])
     )
 
-    // Map categories with their counts (no additional queries!)
-    const categoriesWithCounts = categories.map(category => ({
-      id: category._id.toString(),
-      name: category.name,
-      description: category.description,
-      count: countMap.get(category.name) || 0,
-      color: category.color,
-      isDefault: category.isDefault,
-      isActive: category.isActive,
-      createdAt: category.createdAt,
-      updatedAt: category.updatedAt
-    }))
+    // Separate default and custom categories (getOrCreateDefaults already sorts defaults, but we need to maintain order)
+    const defaultCategories = []
+    const customCategories = []
+    
+    for (const category of categories) {
+      const categoryData = {
+        id: category._id.toString(),
+        name: category.name,
+        description: category.description,
+        count: countMap.get(category.name) || 0,
+        color: category.color,
+        isDefault: category.isDefault || false,
+        isActive: category.isActive,
+        createdAt: category.createdAt,
+        updatedAt: category.updatedAt
+      }
+      
+      if (category.isDefault === true) {
+        defaultCategories.push(categoryData)
+      } else {
+        customCategories.push(categoryData)
+      }
+    }
+
+    // Ensure default categories are in the predefined order
+    // DEFAULT_CATEGORY_NAMES is already imported at top level (excludes "All")
+    const defaultOrder = DEFAULT_CATEGORY_NAMES
+    
+    const sortedDefaultCategories = defaultOrder
+      .map(categoryName => defaultCategories.find(cat => cat.name === categoryName))
+      .filter(Boolean)
+
+    // Combine: sorted default categories + custom categories at the end
+    // getOrCreateDefaults already returns in correct order, so this should match, but we ensure it here
+    const categoriesWithCounts = [...sortedDefaultCategories, ...customCategories]
 
     // Store in cache
     categoryCache.set(userIdStr, {
@@ -126,6 +149,12 @@ export const addCategory = async (userId, categoryData) => {
   try {
     if (!userId) {
       throw new Error('User ID is required')
+    }
+
+    // CRITICAL: Only allow predefined categories
+    const categoryName = categoryData.name.trim()
+    if (!DEFAULT_CATEGORY_NAMES.includes(categoryName)) {
+      throw new Error(`Only predefined categories are allowed: ${DEFAULT_CATEGORY_NAMES.join(', ')}`)
     }
 
     const newCategory = new Category({
@@ -263,9 +292,9 @@ export const deleteCategory = async (userId, categoryId) => {
       return null
     }
 
-    // Only prevent deleting the "Other" category - allow deletion of all other categories
-    if (category.name === 'Other') {
-      throw new Error('Cannot delete the "Other" category')
+    // Prevent deleting default categories (any category with isDefault: true)
+    if (category.isDefault === true) {
+      throw new Error('Cannot delete default categories. Only custom categories can be deleted.')
     }
 
     // Move all emails from this category to "Other" before deleting
