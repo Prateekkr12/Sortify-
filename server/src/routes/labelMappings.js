@@ -89,8 +89,8 @@ router.post('/', protect, asyncHandler(async (req, res) => {
       })
     }
     
-    // Validate category exists for this user
-    const category = await Category.findOne({ userId, name: categoryName, isActive: true })
+    // Validate category exists (global)
+    const category = await Category.findOne({ name: categoryName, isActive: true })
     if (!category) {
       return res.status(404).json({
         success: false,
@@ -123,7 +123,7 @@ router.post('/', protect, asyncHandler(async (req, res) => {
     
     // Clear caches
     clearLabelMappingCache(userId)
-    clearCategoryCache(userId)
+    clearCategoryCache()
     
     res.status(201).json({
       success: true,
@@ -175,7 +175,7 @@ router.put('/:id', protect, asyncHandler(async (req, res) => {
     
     // Validate category if changing
     if (categoryName && categoryName !== mapping.categoryName) {
-      const category = await Category.findOne({ userId, name: categoryName, isActive: true })
+      const category = await Category.findOne({ name: categoryName, isActive: true })
       if (!category) {
         return res.status(404).json({
           success: false,
@@ -199,7 +199,7 @@ router.put('/:id', protect, asyncHandler(async (req, res) => {
     
     // Clear caches
     clearLabelMappingCache(userId)
-    clearCategoryCache(userId)
+    clearCategoryCache()
     
     res.json({
       success: true,
@@ -244,7 +244,7 @@ router.delete('/:id', protect, asyncHandler(async (req, res) => {
     
     // Clear caches
     clearLabelMappingCache(userId)
-    clearCategoryCache(userId)
+    clearCategoryCache()
     
     res.json({
       success: true,
@@ -277,7 +277,7 @@ router.post('/bulk', protect, asyncHandler(async (req, res) => {
     
     // Validate all categories exist
     const categoryNames = [...new Set(mappings.map(m => m.categoryName))]
-    const categories = await Category.find({ userId, name: { $in: categoryNames }, isActive: true })
+    const categories = await Category.find({ name: { $in: categoryNames }, isActive: true })
     const validCategoryNames = new Set(categories.map(c => c.name))
     
     const invalidCategories = categoryNames.filter(name => !validCategoryNames.has(name))
@@ -323,7 +323,7 @@ router.post('/bulk', protect, asyncHandler(async (req, res) => {
     
     // Clear caches
     clearLabelMappingCache(userId)
-    clearCategoryCache(userId)
+    clearCategoryCache()
     
     res.status(201).json({
       success: true,

@@ -205,8 +205,8 @@ export const syncAllUserCategories = async (userId) => {
   try {
     console.log(`🔄 Syncing all categories for user ${userId}...`)
 
+    // Categories are now global, but we still sync them per user for ML service compatibility
     const categories = await Category.find({
-      userId: new mongoose.Types.ObjectId(userId),
       isActive: true
     })
 
@@ -330,10 +330,12 @@ export const initializeCategorySync = async (userId = null) => {
       // Sync for specific user
       await syncAllUserCategories(userId)
     } else {
-      // Sync for all users (in production, this might be too heavy)
-      const allCategories = await Category.find({ isActive: true }).distinct('userId')
-      for (const uid of allCategories) {
-        await syncAllUserCategories(uid)
+      // Sync for all users - categories are now global, so sync globally
+      // Get all users with emails and sync categories for each
+      const User = (await import('../models/User.js')).default
+      const allUsers = await User.find({}).select('_id').lean()
+      for (const user of allUsers) {
+        await syncAllUserCategories(user._id.toString())
       }
     }
 

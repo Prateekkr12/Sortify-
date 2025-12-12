@@ -613,7 +613,7 @@ export const fullSync = async (user) => {
     // Clear analytics and category cache after sync to ensure fresh data
     if (newEmails.length > 0) {
       clearAnalyticsCache(user._id.toString())
-      clearCategoryCache(user._id.toString())
+      clearCategoryCache()
       console.log(`🗑️ Cleared analytics cache after sync (${newEmails.length} new emails)`)
     }
 
@@ -913,7 +913,7 @@ export const syncEmailThumbnails = async (user, options = {}) => {
     // Clear analytics and category cache after sync to ensure fresh data
     if (syncedCount > 0) {
       clearAnalyticsCache(user._id.toString())
-      clearCategoryCache(user._id.toString())
+      clearCategoryCache()
       console.log(`🗑️ Cleared analytics cache after thumbnail sync (${syncedCount} emails synced)`)
     }
 

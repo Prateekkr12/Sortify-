@@ -15,61 +15,60 @@ const categoryCache = new Map()
 const CACHE_TTL = 30 * 1000 // 30 seconds for real-time counts
 
 /**
- * Clear category cache for a specific user
- * @param {string} userId - User ID
+ * Clear category cache (global cache)
  */
-export const clearCategoryCache = (userId) => {
-  if (userId) {
-    categoryCache.delete(userId.toString())
-    console.log(`🗑️ Cleared category cache for user: ${userId}`)
-  } else {
-    categoryCache.clear()
-    console.log(`🗑️ Cleared all category cache`)
-  }
+export const clearCategoryCache = () => {
+  categoryCache.clear()
+  console.log(`🗑️ Cleared global category cache`)
 }
 
 /**
- * Get all categories for a specific user
- * @param {string} userId - User ID
+ * Get all categories (global - for any user, but counts are user-specific)
+ * @param {string} userId - User ID (optional, only used for email counts)
  * @returns {Promise<Array>} Array of categories
  */
-export const getCategories = async (userId) => {
+export const getCategories = async (userId = null) => {
   try {
-    if (!userId) {
-      throw new Error('User ID is required')
-    }
-
-    const userIdStr = userId.toString()
+    const CACHE_KEY = 'global_categories'
 
     // Check cache first
-    const cached = categoryCache.get(userIdStr)
+    const cached = categoryCache.get(CACHE_KEY)
     if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-      console.log(`✅ Returning cached categories for user: ${userIdStr}`)
+      console.log(`✅ Returning cached global categories`)
+      // If userId provided, enrich with user-specific counts
+      if (userId) {
+        const { getAllCategoryCounts } = await import('./emailCountService.js')
+        const emailCounts = await getAllCategoryCounts(userId.toString())
+        const countMap = new Map(
+          emailCounts.map(item => [item._id, item.count])
+        )
+        return cached.data.map(cat => ({
+          ...cat,
+          count: countMap.get(cat.name) || 0
+        }))
+      }
       return cached.data
     }
 
-    console.time(`getCategories-${userIdStr}`)
+    console.time('getCategories-global')
 
-    // Convert userId to ObjectId
-    const userIdObj = toObjectId(userId)
-
-    // Ensure user has default categories (already returns in correct order)
-    const allCategories = await Category.getOrCreateDefaults(userIdObj)
+    // Ensure default categories exist (global)
+    const allCategories = await Category.getOrCreateDefaults()
     
-    // Filter to only active categories (matches previous analytics endpoint behavior)
+    // Filter to only active categories
     const categories = allCategories.filter(category => category.isActive !== false)
     
-    // Use unified count service for consistent counts with email list and analytics
-    // This ensures all endpoints use the exact same query structure
-    const { getAllCategoryCounts } = await import('./emailCountService.js')
-    const emailCounts = await getAllCategoryCounts(userIdStr)
+    // Get user-specific counts if userId provided
+    let countMap = new Map()
+    if (userId) {
+      const { getAllCategoryCounts } = await import('./emailCountService.js')
+      const emailCounts = await getAllCategoryCounts(userId.toString())
+      countMap = new Map(
+        emailCounts.map(item => [item._id, item.count])
+      )
+    }
 
-    // Create a Map for O(1) lookups
-    const countMap = new Map(
-      emailCounts.map(item => [item._id, item.count])
-    )
-
-    // Separate default and custom categories (getOrCreateDefaults already sorts defaults, but we need to maintain order)
+    // Separate default and custom categories
     const defaultCategories = []
     const customCategories = []
     
@@ -82,6 +81,9 @@ export const getCategories = async (userId) => {
         color: category.color,
         isDefault: category.isDefault || false,
         isActive: category.isActive,
+        classificationStrategy: category.classificationStrategy,
+        keywords: category.keywords,
+        patterns: category.patterns,
         createdAt: category.createdAt,
         updatedAt: category.updatedAt
       }
@@ -94,7 +96,6 @@ export const getCategories = async (userId) => {
     }
 
     // Ensure default categories are in the predefined order
-    // DEFAULT_CATEGORY_NAMES is already imported at top level (excludes "All")
     const defaultOrder = DEFAULT_CATEGORY_NAMES
     
     const sortedDefaultCategories = defaultOrder
@@ -102,17 +103,20 @@ export const getCategories = async (userId) => {
       .filter(Boolean)
 
     // Combine: sorted default categories + custom categories at the end
-    // getOrCreateDefaults already returns in correct order, so this should match, but we ensure it here
     const categoriesWithCounts = [...sortedDefaultCategories, ...customCategories]
 
-    // Store in cache
-    categoryCache.set(userIdStr, {
-      data: categoriesWithCounts,
+    // Store in cache (without user-specific counts)
+    const categoriesWithoutCounts = categoriesWithCounts.map(cat => ({
+      ...cat,
+      count: 0 // Don't cache user-specific counts
+    }))
+    categoryCache.set(CACHE_KEY, {
+      data: categoriesWithoutCounts,
       timestamp: Date.now()
     })
 
-    console.timeEnd(`getCategories-${userIdStr}`)
-    console.log(`✅ Categories loaded and cached (${categories.length} categories, 1 query)`)
+    console.timeEnd('getCategories-global')
+    console.log(`✅ Global categories loaded and cached (${categories.length} categories)`)
 
     return categoriesWithCounts
   } catch (error) {
@@ -122,17 +126,15 @@ export const getCategories = async (userId) => {
 }
 
 /**
- * Get category count for a user
- * @param {string} userId - User ID
- * @returns {Promise<number>} Number of categories
+ * Get category count (global - unique category names only)
+ * @returns {Promise<number>} Number of unique active categories
  */
-export const getCategoryCount = async (userId) => {
+export const getCategoryCount = async () => {
   try {
-    if (!userId) {
-      throw new Error('User ID is required')
-    }
-    
-    return await Category.countDocuments({ userId: toObjectId(userId) })
+    // Count distinct category names to avoid duplicates from migration
+    // This ensures we only count unique categories, not duplicate documents
+    const distinctCategories = await Category.distinct('name', { isActive: true })
+    return distinctCategories.length
   } catch (error) {
     console.error('Error getting category count:', error)
     throw error
@@ -140,25 +142,72 @@ export const getCategoryCount = async (userId) => {
 }
 
 /**
- * Add a new category for a user
- * @param {string} userId - User ID
+ * Add a new category (global)
  * @param {Object} categoryData - Category data
  * @returns {Promise<Object>} Created category
  */
-export const addCategory = async (userId, categoryData) => {
+export const addCategory = async (categoryData) => {
   try {
-    if (!userId) {
-      throw new Error('User ID is required')
-    }
-
     // CRITICAL: Only allow predefined categories
     const categoryName = categoryData.name.trim()
     if (!DEFAULT_CATEGORY_NAMES.includes(categoryName)) {
       throw new Error(`Only predefined categories are allowed: ${DEFAULT_CATEGORY_NAMES.join(', ')}`)
     }
 
+    // Check if category already exists globally
+    // Prefer categories without userId (global ones), or get the first one
+    let existing = await Category.findOne({ 
+      name: categoryName,
+      $or: [
+        { userId: { $exists: false } },
+        { userId: null }
+      ]
+    })
+    
+    // If no global category found, check for any category with this name
+    if (!existing) {
+      existing = await Category.findOne({ name: categoryName }).sort({ createdAt: 1 })
+    }
+    
+    if (existing) {
+      // Update existing category instead of creating new one
+      existing.description = categoryData.description || existing.description
+      existing.color = categoryData.color || existing.color
+      existing.classificationStrategy = categoryData.classificationStrategy || existing.classificationStrategy
+      existing.patterns = categoryData.patterns || existing.patterns
+      existing.trainingStatus = categoryData.trainingStatus || existing.trainingStatus
+      existing.keywords = categoryData.keywords || existing.keywords
+      existing.isActive = true
+      // Ensure it's a global category (no userId)
+      if (existing.userId) {
+        existing.userId = undefined
+      }
+      
+      const savedCategory = await existing.save()
+      
+      // Clear cache after updating category
+      clearCategoryCache()
+      
+      console.log(`✅ Category "${savedCategory.name}" updated globally`)
+      
+      return {
+        id: savedCategory._id.toString(),
+        name: savedCategory.name,
+        description: savedCategory.description,
+        count: 0,
+        color: savedCategory.color,
+        isDefault: savedCategory.isDefault,
+        isActive: savedCategory.isActive,
+        classificationStrategy: savedCategory.classificationStrategy,
+        patterns: savedCategory.patterns,
+        trainingStatus: savedCategory.trainingStatus,
+        mlServiceId: savedCategory.mlServiceId,
+        createdAt: savedCategory.createdAt,
+        updatedAt: savedCategory.updatedAt
+      }
+    }
+
     const newCategory = new Category({
-      userId: toObjectId(userId),
       name: categoryData.name.trim(),
       description: categoryData.description || `Custom category: ${categoryData.name.trim()}`,
       color: categoryData.color || '#6B7280',
@@ -175,17 +224,15 @@ export const addCategory = async (userId, categoryData) => {
     const savedCategory = await newCategory.save()
     
     // Clear cache after adding category
-    clearCategoryCache(userId)
+    clearCategoryCache()
     
-    // Don't trigger reclassification here - let the caller handle it
-    // This prevents duplicate reclassification jobs
-    console.log(`✅ Category "${savedCategory.name}" saved to database`)
+    console.log(`✅ Category "${savedCategory.name}" saved globally`)
     
     return {
       id: savedCategory._id.toString(),
       name: savedCategory.name,
       description: savedCategory.description,
-      count: savedCategory.emailCount,
+      count: 0,
       color: savedCategory.color,
       isDefault: savedCategory.isDefault,
       isActive: savedCategory.isActive,
@@ -203,20 +250,20 @@ export const addCategory = async (userId, categoryData) => {
 }
 
 /**
- * Update an existing category
- * @param {string} userId - User ID
+ * Update an existing category (global)
  * @param {string} categoryId - Category ID
  * @param {Object} updates - Updates to apply
+ * @param {string} userId - Optional userId for triggering reclassification for that user
  * @returns {Promise<Object|null>} Updated category or null if not found
  */
-export const updateCategory = async (userId, categoryId, updates) => {
+export const updateCategory = async (categoryId, updates, userId = null) => {
   try {
-    if (!userId || !categoryId) {
-      throw new Error('User ID and Category ID are required')
+    if (!categoryId) {
+      throw new Error('Category ID is required')
     }
 
-    // Find the category and ensure it belongs to the user
-    const category = await Category.findOne({ _id: categoryId, userId: toObjectId(userId) })
+    // Find the category (global, no userId check)
+    const category = await Category.findById(categoryId)
     
     if (!category) {
       return null
@@ -243,13 +290,16 @@ export const updateCategory = async (userId, categoryId, updates) => {
     )
 
     // Clear cache after updating category
-    clearCategoryCache(userId)
+    clearCategoryCache()
 
-    // Trigger reclassification if classification strategy changed
+    // Trigger reclassification if classification strategy changed (for all users or specific user)
     if (shouldTriggerReclassification && updatedCategory) {
       try {
-        console.log(`🔄 Triggering reclassification for updated category strategy: ${updatedCategory.name}`)
-        await startReclassificationJob(userId, updatedCategory.name, updatedCategory._id.toString())
+        console.log(`🔄 Category "${updatedCategory.name}" strategy updated globally - changes apply to all users`)
+        // Note: Reclassification would need to be triggered for all users or handled separately
+        if (userId) {
+          await startReclassificationJob(userId, updatedCategory.name, updatedCategory._id.toString())
+        }
       } catch (reclassifyError) {
         console.error('❌ Error starting reclassification for updated category:', reclassifyError)
         // Don't fail the category update if reclassification fails
@@ -260,10 +310,13 @@ export const updateCategory = async (userId, categoryId, updates) => {
       id: updatedCategory._id.toString(),
       name: updatedCategory.name,
       description: updatedCategory.description,
-      count: updatedCategory.emailCount,
+      count: 0,
       color: updatedCategory.color,
       isDefault: updatedCategory.isDefault,
       isActive: updatedCategory.isActive,
+      classificationStrategy: updatedCategory.classificationStrategy,
+      keywords: updatedCategory.keywords,
+      patterns: updatedCategory.patterns,
       createdAt: updatedCategory.createdAt,
       updatedAt: updatedCategory.updatedAt
     }
@@ -274,19 +327,18 @@ export const updateCategory = async (userId, categoryId, updates) => {
 }
 
 /**
- * Delete a category for a user
- * @param {string} userId - User ID
+ * Delete a category (global - affects all users)
  * @param {string} categoryId - Category ID
  * @returns {Promise<Object|null>} Deleted category or null if not found
  */
-export const deleteCategory = async (userId, categoryId) => {
+export const deleteCategory = async (categoryId) => {
   try {
-    if (!userId || !categoryId) {
-      throw new Error('User ID and Category ID are required')
+    if (!categoryId) {
+      throw new Error('Category ID is required')
     }
 
-    // Find the category and ensure it belongs to the user
-    const category = await Category.findOne({ _id: categoryId, userId: toObjectId(userId) })
+    // Find the category (global)
+    const category = await Category.findById(categoryId)
     
     if (!category) {
       return null
@@ -297,18 +349,16 @@ export const deleteCategory = async (userId, categoryId) => {
       throw new Error('Cannot delete default categories. Only custom categories can be deleted.')
     }
 
-    // Move all emails from this category to "Other" before deleting
+    // Move all emails from this category to "Other" for ALL users before deleting
     const emailCount = await Email.countDocuments({ 
-      userId: toObjectId(userId), 
       category: category.name 
     })
 
     if (emailCount > 0) {
-      console.log(`🔄 Moving ${emailCount} emails from "${category.name}" to "Other" category`)
+      console.log(`🔄 Moving ${emailCount} emails from "${category.name}" to "Other" category globally`)
       
       await Email.updateMany(
         { 
-          userId: toObjectId(userId),
           category: category.name
         },
         { 
@@ -326,19 +376,19 @@ export const deleteCategory = async (userId, categoryId) => {
         }
       )
       
-      console.log(`✅ Moved ${emailCount} emails to "Other" category`)
+      console.log(`✅ Moved ${emailCount} emails to "Other" category globally`)
     }
 
     const deletedCategory = await Category.findByIdAndDelete(categoryId)
     
     // Clear cache after deleting category
-    clearCategoryCache(userId)
+    clearCategoryCache()
     
     return {
       id: deletedCategory._id.toString(),
       name: deletedCategory.name,
       description: deletedCategory.description,
-      count: deletedCategory.emailCount,
+      count: 0,
       color: deletedCategory.color,
       isDefault: deletedCategory.isDefault,
       isActive: deletedCategory.isActive,
@@ -352,18 +402,17 @@ export const deleteCategory = async (userId, categoryId) => {
 }
 
 /**
- * Find category by ID for a specific user
- * @param {string} userId - User ID
+ * Find category by ID (global)
  * @param {string} categoryId - Category ID
  * @returns {Promise<Object|null>} Category or null if not found
  */
-export const findCategoryById = async (userId, categoryId) => {
+export const findCategoryById = async (categoryId) => {
   try {
-    if (!userId || !categoryId) {
+    if (!categoryId) {
       return null
     }
 
-    const category = await Category.findOne({ _id: categoryId, userId: toObjectId(userId) })
+    const category = await Category.findById(categoryId)
     
     if (!category) {
       return null
@@ -373,10 +422,13 @@ export const findCategoryById = async (userId, categoryId) => {
       id: category._id.toString(),
       name: category.name,
       description: category.description,
-      count: category.emailCount,
+      count: 0,
       color: category.color,
       isDefault: category.isDefault,
       isActive: category.isActive,
+      classificationStrategy: category.classificationStrategy,
+      keywords: category.keywords,
+      patterns: category.patterns,
       createdAt: category.createdAt,
       updatedAt: category.updatedAt
     }
@@ -387,20 +439,19 @@ export const findCategoryById = async (userId, categoryId) => {
 }
 
 /**
- * Find category by name for a specific user
- * @param {string} userId - User ID
+ * Find category by name (global)
  * @param {string} name - Category name
  * @returns {Promise<Object|null>} Category or null if not found
  */
-export const findCategoryByName = async (userId, name) => {
+export const findCategoryByName = async (name) => {
   try {
-    if (!userId || !name) {
+    if (!name) {
       return null
     }
 
     const category = await Category.findOne({ 
-      userId: toObjectId(userId), 
-      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') } 
+      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
+      isActive: true
     })
     
     if (!category) {
@@ -411,10 +462,13 @@ export const findCategoryByName = async (userId, name) => {
       id: category._id.toString(),
       name: category.name,
       description: category.description,
-      count: category.emailCount,
+      count: 0,
       color: category.color,
       isDefault: category.isDefault,
       isActive: category.isActive,
+      classificationStrategy: category.classificationStrategy,
+      keywords: category.keywords,
+      patterns: category.patterns,
       createdAt: category.createdAt,
       updatedAt: category.updatedAt
     }

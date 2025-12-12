@@ -19,6 +19,7 @@ import { groupEmailsIntoThreads } from '../services/threadGroupingService.js'
 import { clearAnalyticsCache } from './analytics.js'
 import { clearCategoryCache } from '../services/categoryService.js'
 import emailContentCache from '../services/emailContentCache.js'
+import { sendUpdateToUser } from '../services/websocketService.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -40,6 +41,68 @@ const getGmailClient = (accessToken, refreshToken) => {
 
   return google.gmail({ version: 'v1', auth: oauth2Client })
 }
+
+// @desc    Check if there are new emails to sync from Gmail
+// @route   GET /api/emails/gmail/check-new
+// @access  Private
+router.get('/gmail/check-new', protect, asyncHandler(async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+    
+    if (!user.gmailConnected || !user.gmailAccessToken) {
+      return res.status(400).json({
+        success: false,
+        hasNewEmails: false,
+        message: 'Gmail account not connected'
+      })
+    }
+
+    const gmail = getGmailClient(user.gmailAccessToken, user.gmailRefreshToken)
+    
+    // Find the most recent email we already have
+    const latestEmail = await Email.findOne({ 
+      userId: user._id,
+      provider: 'gmail'
+    })
+      .sort({ date: -1 })
+      .select('date')
+      .lean()
+
+    // Build query to check for new emails (after the latest one we have)
+    let query = 'in:inbox'
+    if (latestEmail && latestEmail.date) {
+      // Convert date to Unix timestamp (seconds) for Gmail API
+      const afterTimestamp = Math.floor(latestEmail.date.getTime() / 1000)
+      query = `in:inbox after:${afterTimestamp}`
+    }
+    
+    // Check if there are any new emails (limit to 1 for efficiency)
+    const response = await gmail.users.messages.list({
+      userId: 'me',
+      maxResults: 1, // Only need to check if any exist
+      q: query
+    })
+
+    const hasNewEmails = (response.data.messages || []).length > 0
+    const estimatedCount = response.data.resultSizeEstimate || 0
+
+    return res.json({
+      success: true,
+      hasNewEmails,
+      estimatedCount,
+      message: hasNewEmails 
+        ? `Found approximately ${estimatedCount} new email(s) to sync`
+        : 'No new emails to sync'
+    })
+  } catch (error) {
+    console.error('Error checking for new emails:', error)
+    return res.status(500).json({
+      success: false,
+      hasNewEmails: false,
+      message: 'Failed to check for new emails'
+    })
+  }
+}))
 
 // @desc    Sync Gmail emails
 // @route   POST /api/emails/gmail/sync
@@ -75,6 +138,26 @@ router.post('/gmail/sync', protect, asyncHandler(async (req, res) => {
       console.log(`📅 Fetching emails newer than: ${latestEmail.date.toISOString()}`)
     }
     
+    // First check if there are any new emails
+    const checkResponse = await gmail.users.messages.list({
+      userId: 'me',
+      maxResults: 1,
+      q: query
+    })
+
+    const hasNewEmails = (checkResponse.data.messages || []).length > 0
+    
+    // If no new emails, return early without syncing
+    if (!hasNewEmails) {
+      return res.json({
+        success: true,
+        synced: 0,
+        newEmailCount: 0,
+        total: 0,
+        message: 'No new emails to sync'
+      })
+    }
+    
     // Get emails (limited to 200 for quick sync)
     const response = await gmail.users.messages.list({
       userId: 'me',
@@ -85,8 +168,23 @@ router.post('/gmail/sync', protect, asyncHandler(async (req, res) => {
     const messages = response.data.messages || []
     let syncedCount = 0
     let newEmailCount = 0
+    const totalMessages = messages.length
 
-    for (const message of messages) {
+    // Send initial sync start notification
+    sendUpdateToUser(req.user._id.toString(), {
+      type: 'sync_status',
+      data: {
+        status: 'active',
+        isActive: true,
+        progress: 0,
+        message: 'Starting sync...',
+        total: totalMessages,
+        synced: 0
+      }
+    })
+
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i]
       try {
         // Skip if message.id is null or undefined
         if (!message.id) {
@@ -197,6 +295,29 @@ router.post('/gmail/sync', protect, asyncHandler(async (req, res) => {
         }
         
         syncedCount++
+        
+        // Send progress update every 10 emails or at milestones
+        const progress = Math.round(((i + 1) / totalMessages) * 100)
+        if (syncedCount % 10 === 0 || progress % 25 === 0 || i === messages.length - 1) {
+          // Send progress update via WebSocket
+          sendUpdateToUser(req.user._id.toString(), {
+            type: 'sync_status',
+            data: {
+              status: 'active',
+              isActive: true,
+              progress: progress,
+              message: `Syncing: ${syncedCount}/${totalMessages} emails`,
+              total: totalMessages,
+              synced: syncedCount,
+              newEmails: newEmailCount
+            }
+          })
+          
+          // Clear cache periodically during sync for fresh stats
+          if (syncedCount % 20 === 0) {
+            clearAnalyticsCache(req.user._id.toString())
+          }
+        }
 
       } catch (error) {
         console.error(`Error syncing email ${message.id}:`, error)
@@ -205,14 +326,43 @@ router.post('/gmail/sync', protect, asyncHandler(async (req, res) => {
       }
     }
 
-    // Analytics will be updated automatically via frontend polling
+    // Clear analytics cache to ensure fresh stats on next fetch
+    if (newEmailCount > 0) {
+      clearAnalyticsCache(req.user._id.toString())
+      console.log(`🗑️ Cleared analytics cache after sync (${newEmailCount} new emails)`)
+      
+      // Send WebSocket event to trigger immediate stats refresh
+      sendUpdateToUser(req.user._id.toString(), {
+        type: 'stats_updated',
+        data: {
+          message: 'Stats updated after sync',
+          newEmailCount,
+          syncedCount,
+          timestamp: new Date().toISOString()
+        }
+      })
+    }
 
-    // Send notification about sync completion
+    // Send sync completion notification with final status
     const syncMessage = newEmailCount > 0 
       ? `Found ${newEmailCount} new emails! Synced ${syncedCount} total.`
       : messages.length > 0 
         ? `No new emails found (checked ${messages.length} recent emails)`
         : 'No new emails in your inbox'
+    
+    // Send final sync status update
+    sendUpdateToUser(req.user._id.toString(), {
+      type: 'sync_status',
+      data: {
+        status: 'completed',
+        isActive: false,
+        progress: 100,
+        message: syncMessage,
+        total: totalMessages,
+        synced: syncedCount,
+        newEmails: newEmailCount
+      }
+    })
     
     notificationService.sendSyncStatusNotification(req.user._id.toString(), {
       status: 'completed',
@@ -1447,7 +1597,7 @@ router.post('/recategorize/:emailId', protect, asyncHandler(async (req, res) => 
     // Clear caches if category changed
     if (oldCategory !== newCategory) {
       clearAnalyticsCache(userId.toString())
-      clearCategoryCache(userId.toString())
+      clearCategoryCache()
       console.log(`🗑️ Cleared caches after recategorization (${oldCategory} → ${newCategory})`)
     }
 
@@ -1774,7 +1924,7 @@ router.put('/:id/category', protect, asyncHandler(async (req, res) => {
     // Clear caches if category changed
     if (oldCategory !== category) {
       clearAnalyticsCache(req.user._id.toString())
-      clearCategoryCache(req.user._id.toString())
+      clearCategoryCache()
       console.log(`🗑️ Cleared caches after category change (${oldCategory} → ${category})`)
     }
 
@@ -2648,7 +2798,7 @@ router.post('/reclassify-all', protect, asyncHandler(async (req, res) => {
         
         // Clear caches one final time
         clearAnalyticsCache(userId)
-        clearCategoryCache(userId)
+        clearCategoryCache()
         
         // Send notification about Phase 1 and Phase 2 completion
         notificationService.sendClassificationNotification(userId, {

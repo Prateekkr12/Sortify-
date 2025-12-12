@@ -8,11 +8,15 @@ import { clearAdvancedAnalyticsCache } from './advancedAnalytics.js'
 import { getAllCategoryCounts, getTotalEmailCount } from '../services/emailCountService.js'
 
 // Analytics cache to reduce database load
-// Reduced TTL for real-time accuracy - counts update within 30 seconds
+// Reduced TTL for real-time accuracy - lighter updates during sync
 const analyticsCache = new Map()
-const CACHE_TTL = 30 * 1000 // 30 seconds for real-time counts
+const CACHE_TTL = 30 * 1000 // 30 seconds for normal updates
+const LIGHT_CACHE_TTL = 2 * 1000 // 2 seconds for light updates during sync
 
-function getCachedData(key, ttl = CACHE_TTL) {
+function getCachedData(key, ttl = CACHE_TTL, bypassCache = false) {
+  if (bypassCache) {
+    return null // Bypass cache when force is requested
+  }
   const cached = analyticsCache.get(key)
   if (cached && Date.now() - cached.timestamp < ttl) {
     return cached.data
@@ -54,9 +58,15 @@ const router = express.Router()
 // @access  Private
 router.get('/stats', protect, asyncHandler(async (req, res) => {
   try {
-    // Check cache first (30 second TTL for real-time accuracy)
+    // Support bypassing cache for immediate updates during sync
+    const bypassCache = req.query.force === 'true' || req.query.nocache === 'true'
+    const useLightCache = req.query.light === 'true' // Use shorter TTL for frequent polling
+    
     const cacheKey = `stats_${req.user._id}`
-    const cached = getCachedData(cacheKey)
+    const cacheTTL = useLightCache ? LIGHT_CACHE_TTL : CACHE_TTL
+    
+    // Check cache first (with optional bypass)
+    const cached = getCachedData(cacheKey, cacheTTL, bypassCache)
     if (cached) {
       return res.json({ success: true, stats: cached })
     }
@@ -133,8 +143,8 @@ router.get('/stats', protect, asyncHandler(async (req, res) => {
         .map(item => item.category)
     ).size
 
-    // Get dynamic category count from shared service
-    const totalAvailableCategories = await getCategoryCount(req.user._id)
+    // Get dynamic category count from shared service (global, no userId needed)
+    const totalAvailableCategories = await getCategoryCount()
 
     const statsResponse = {
       totalEmails: totalEmails,  // Use unified count service for consistency

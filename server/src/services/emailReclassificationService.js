@@ -299,7 +299,7 @@ const processReclassificationJob = async (jobId) => {
  */
 const updateCategoryCounts = async (userId) => {
   try {
-    const categories = await Category.find({ userId })
+    const categories = await Category.find({ isActive: true })
     
     for (const category of categories) {
       const count = await Email.countDocuments({

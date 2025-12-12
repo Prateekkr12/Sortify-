@@ -189,7 +189,7 @@ router.post('/categories', protect, asyncHandler(async (req, res) => {
     const userId = req.user._id
     
     // Check if category already exists
-    const existingCategory = await findCategoryByName(userId, categoryName)
+    const existingCategory = await findCategoryByName(categoryName)
     if (existingCategory) {
       return res.status(400).json({
         success: false,
@@ -199,8 +199,8 @@ router.post('/categories', protect, asyncHandler(async (req, res) => {
 
     console.log(`🚀 Creating category "${categoryName}"`)
 
-    // Create the category first (this is the critical path)
-    let savedCategory = await serviceAddCategory(userId, {
+    // Create the category first (global, affects all users)
+    let savedCategory = await serviceAddCategory({
       name: categoryName,
       description: description || `Custom category: ${categoryName}`,
       trainingStatus: 'pending'
@@ -318,7 +318,7 @@ router.post('/categories', protect, asyncHandler(async (req, res) => {
           
           // Clear caches (both analytics and category cache)
           clearAnalyticsCache(userId.toString())
-          clearCategoryCache(userId)
+          clearCategoryCache()
           
           // Send WebSocket update about completion
           sendCategoryUpdate(userId.toString(), {
@@ -417,7 +417,7 @@ router.put('/categories/:id', protect, asyncHandler(async (req, res) => {
     }
 
     const userId = req.user._id
-    const existingCategoryById = await findCategoryById(userId, id)
+    const existingCategoryById = await findCategoryById(id)
     
     if (!existingCategoryById) {
       return res.status(404).json({
@@ -427,7 +427,7 @@ router.put('/categories/:id', protect, asyncHandler(async (req, res) => {
     }
 
     // Check if new name conflicts with existing category
-    const existingCategoryByName = await findCategoryByName(userId, name.trim())
+    const existingCategoryByName = await findCategoryByName(name.trim())
     if (existingCategoryByName && existingCategoryByName.id !== id) {
       return res.status(400).json({
         success: false,
@@ -449,8 +449,8 @@ router.put('/categories/:id', protect, asyncHandler(async (req, res) => {
       updateData.classificationStrategy = classificationStrategy
     }
 
-    // Update category using service
-    const updatedCategory = await serviceUpdateCategory(userId, id, updateData)
+    // Update category using service (global, but can trigger reclassification for user)
+    const updatedCategory = await serviceUpdateCategory(id, updateData, userId.toString())
 
     if (!updatedCategory) {
       return res.status(404).json({
@@ -528,8 +528,7 @@ router.delete('/categories/:id', protect, asyncHandler(async (req, res) => {
   try {
     const { id } = req.params
 
-    const userId = req.user._id
-    const existingCategory = await findCategoryById(userId, id)
+    const existingCategory = await findCategoryById(id)
     
     if (!existingCategory) {
       return res.status(404).json({
@@ -540,7 +539,7 @@ router.delete('/categories/:id', protect, asyncHandler(async (req, res) => {
 
     // Prevent deletion of default categories
     // Note: findCategoryById returns a plain object, so we need to check the actual category from DB
-    const categoryDoc = await Category.findOne({ _id: id, userId })
+    const categoryDoc = await Category.findById(id)
     if (categoryDoc && categoryDoc.isDefault === true) {
       return res.status(400).json({
         success: false,
@@ -557,8 +556,8 @@ router.delete('/categories/:id', protect, asyncHandler(async (req, res) => {
     //   console.warn(`⚠️ Failed to remove category "${existingCategory.name}" from ML service:`, mlError.message)
     // }
 
-    // The service will handle the deletion logic including moving emails to "Other"
-    const deletedCategory = await serviceDeleteCategory(userId, id)
+    // The service will handle the deletion logic including moving emails to "Other" (global)
+    const deletedCategory = await serviceDeleteCategory(id)
 
     // Send WebSocket update
     sendCategoryUpdate(req.user._id.toString(), {
@@ -654,7 +653,7 @@ router.post('/categories/from-template/:templateName', protect, asyncHandler(asy
     }
 
     // Check if category already exists
-    const existingCategory = await findCategoryByName(userId, template.name)
+    const existingCategory = await findCategoryByName(template.name)
     if (existingCategory) {
       return res.status(400).json({
         success: false,
@@ -662,8 +661,8 @@ router.post('/categories/from-template/:templateName', protect, asyncHandler(asy
       })
     }
 
-    // Create category from template
-    const category = await Category.createFromTemplate(userId, templateName, template)
+    // Create category from template (global)
+    const category = await Category.createFromTemplate(templateName, template)
 
     // ML service sync disabled - using rule-based classification only
     // try {
@@ -1065,7 +1064,7 @@ router.post('/categories/fix-all-patterns', protect, asyncHandler(async (req, re
     
     // Clear caches (both analytics and category cache)
     clearAnalyticsCache(userId.toString())
-    clearCategoryCache(userId)
+    clearCategoryCache()
     
     res.json({
       success: true,
@@ -1091,9 +1090,8 @@ router.post('/categories/fix-all-patterns', protect, asyncHandler(async (req, re
 router.get('/categories/:id/patterns', protect, asyncHandler(async (req, res) => {
   try {
     const { id } = req.params
-    const userId = req.user._id
     
-    const category = await findCategoryById(userId, id)
+    const category = await findCategoryById(id)
     
     if (!category) {
       return res.status(404).json({

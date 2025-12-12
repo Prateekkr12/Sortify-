@@ -32,8 +32,12 @@ const emailService = {
   },
 
   // Get email statistics
-  getStats: async () => {
-    const response = await api.get(`/analytics/stats?t=${Date.now()}`)
+  getStats: async (options = {}) => {
+    const { force = false, light = false } = options
+    const params = new URLSearchParams({ t: Date.now().toString() })
+    if (force) params.append('force', 'true')
+    if (light) params.append('light', 'true')
+    const response = await api.get(`/analytics/stats?${params}`)
     return response.data
   },
 
@@ -119,9 +123,15 @@ const emailService = {
     return response.data
   },
 
+  // Check if there are new emails to sync
+  checkNewEmails: async () => {
+    const response = await api.get('/emails/gmail/check-new')
+    return response.data
+  },
+
   // Gmail sync
   syncGmail: async () => {
-    const response = await api.post('/emails/gmail/sync-all')
+    const response = await api.post('/emails/gmail/sync')
     return response.data
   },
 

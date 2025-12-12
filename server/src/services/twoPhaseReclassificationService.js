@@ -143,7 +143,7 @@ export const reclassifyAllEmailsTwoPhase = async (userId, categoryName = null) =
 
       // Clear caches to trigger frontend refresh
       clearAnalyticsCache(userId)
-      clearCategoryCache(userId)
+      clearCategoryCache()
 
       console.log(`✅ Phase 1 batch ${currentBatch} complete: ${emails.length} emails processed`)
       console.log(`   Updated: ${phase1UpdatedCount}, Errors: ${phase1ErrorCount}`)

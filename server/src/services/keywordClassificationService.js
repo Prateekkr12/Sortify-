@@ -19,12 +19,11 @@ const categoryCache = new Map()
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 /**
- * Get categories for user from cache or database
- * @param {string} userId - User ID
- * @returns {Promise<Array>} - User categories
+ * Get categories (global - no userId needed)
+ * @returns {Promise<Array>} - Global categories
  */
-const getCategoriesForUser = async (userId) => {
-  const cacheKey = `categories_${userId}`
+const getCategoriesForUser = async () => {
+  const cacheKey = 'global_categories_classification'
   const cached = categoryCache.get(cacheKey)
   
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -32,7 +31,6 @@ const getCategoriesForUser = async (userId) => {
   }
   
   const categories = await Category.find({ 
-    userId, 
     isActive: true 
   }).select('name keywords patterns classificationStrategy priority').lean()
   
@@ -291,8 +289,8 @@ export const classifyWithKeywords = async (email, userId) => {
   try {
     const { subject = '', from = '', snippet = '', body = '' } = email
     
-    // Get user categories
-    const categories = await getCategoriesForUser(userId)
+    // Get global categories
+    const categories = await getCategoriesForUser()
     
     if (categories.length === 0) {
       return {
@@ -467,15 +465,10 @@ export const classifyWithKeywords = async (email, userId) => {
 }
 
 /**
- * Clear category cache
- * @param {string} userId - User ID
+ * Clear category cache (global)
  */
-export const clearCategoryCache = (userId) => {
-  if (userId) {
-    categoryCache.delete(`categories_${userId}`)
-  } else {
-    categoryCache.clear()
-  }
+export const clearCategoryCache = () => {
+  categoryCache.clear()
 }
 
 export default {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useWebSocketContext } from '../contexts/WebSocketContext'
@@ -49,8 +49,21 @@ const Dashboard = () => {
     isActive: false,
     progress: 0,
     status: 'idle',
-    lastSync: null
+    lastSync: null,
+    message: null,
+    total: 0,
+    synced: 0
   })
+  
+  // Track continuous sync state - persists until logout
+  // Use localStorage key with user ID to persist across refreshes
+  const getContinuousSyncKey = useCallback(() => {
+    return `continuousSync_${user?._id || 'default'}`
+  }, [user?._id])
+  
+  const [continuousSyncActive, setContinuousSyncActive] = useState(false)
+  const continuousSyncIntervalRef = useRef(null)
+  const hasRestoredSyncRef = useRef(false) // Track if we've already tried to restore
 
   // State for percentage changes (can be calculated from historical data later)
   const [percentageChange, setPercentageChange] = useState({
@@ -241,8 +254,11 @@ const Dashboard = () => {
     try {
       setStatsLoading(true)
       setLastApiCall(now)
-      console.log('📊 Fetching stats...', { token: !!token, gmailConnected, force })
-      const response = await emailService.getStats()
+      // Use light mode for frequent polling during sync, force to bypass cache when needed
+      const isSyncActive = syncStatus.isActive || syncLoading || fullSyncLoading
+      const useLightMode = isSyncActive && !force // Use light cache during sync
+      console.log('📊 Fetching stats...', { token: !!token, gmailConnected, force, light: useLightMode })
+      const response = await emailService.getStats({ force, light: useLightMode })
       console.log('📊 Raw response from emailService:', response)
       console.log('📊 Stats API response:', response)
       
@@ -286,7 +302,7 @@ const Dashboard = () => {
     } finally {
       setStatsLoading(false)
     }
-  }, [lastApiCall, API_CALL_THROTTLE, token, gmailConnected, stats, statsLoading, fetchSyncStatus])
+  }, [lastApiCall, API_CALL_THROTTLE, token, gmailConnected, stats, statsLoading, fetchSyncStatus, syncStatus.isActive, syncLoading, fullSyncLoading])
 
   // Handle Gmail OAuth callback
   useEffect(() => {
@@ -318,30 +334,45 @@ const Dashboard = () => {
     }
   }, [token, fetchStats])
 
-  // Periodic connection status check and stats refresh - More frequent for real-time data
+  // Continuous polling - always active when Gmail is connected, faster during sync
   useEffect(() => {
-    if (!token) return
+    if (!token || !gmailConnected) return
     
-    // Fast refresh for critical stats and sync status
+    // Determine polling interval based on sync status
+    const isSyncActive = continuousSyncActive || syncStatus.isActive || syncLoading || fullSyncLoading
+    const pollingInterval = isSyncActive ? 1500 : 5000 // 1.5s during sync, 5s when idle
+    
+    console.log(`🔄 Setting up continuous polling (${pollingInterval}ms interval) - sync active: ${isSyncActive}`)
+    
+    // Poll immediately when sync status becomes active
+    if (isSyncActive) {
+      fetchStats(true)
+      fetchSyncStatus()
+    }
+    
+    // Fast refresh for critical stats and sync status - NEVER stops while connected
     const fastInterval = setInterval(() => {
-      if (gmailConnected) {
-        console.log('🔄 Fast refresh for real-time data...')
-        fetchStats(true)
+      if (gmailConnected && token) {
+        const currentlyActive = continuousSyncActive || syncStatus.isActive || syncLoading || fullSyncLoading
+        console.log(`🔄 Continuous polling stats (${pollingInterval}ms) - sync active: ${currentlyActive}`)
+        fetchStats(true) // Force fetch to bypass cache
         fetchSyncStatus()
       }
-    }, 10000) // Every 10 seconds for real-time updates
+    }, pollingInterval)
     
     // Slower refresh for connection status
     const slowInterval = setInterval(() => {
-      checkConnectionStatus()
-      console.log('🔄 Connection status check...')
+      if (gmailConnected && token) {
+        checkConnectionStatus()
+        console.log('🔄 Connection status check...')
+      }
     }, 30000) // Every 30 seconds for connection status
     
     return () => {
       clearInterval(fastInterval)
       clearInterval(slowInterval)
     }
-  }, [token, gmailConnected, fetchStats, fetchSyncStatus])
+  }, [token, gmailConnected, fetchStats, fetchSyncStatus, continuousSyncActive, syncStatus.isActive, syncLoading, fullSyncLoading])
 
   // Load initial data on component mount
   useEffect(() => {
@@ -505,9 +536,9 @@ const Dashboard = () => {
   const handleEmailSync = (emailData) => {
     console.log('📧 Real-time email sync:', emailData)
     // Refresh emails list
-    fetchEmails()
-    // Update stats
-    fetchStats()
+    fetchEmails(true) // Force refresh
+    // Update stats immediately with force flag to bypass cache
+    fetchStats(true)
     fetchSyncStatus()
   }
 
@@ -616,18 +647,28 @@ const Dashboard = () => {
       case 'email_synced':
         console.log('📧 Dashboard received email sync update:', lastMessage.data)
         handleEmailSync(lastMessage.data)
+        // Immediately update stats when individual email is synced
+        fetchStats(true)
         break
         
       case 'sync_status':
         console.log('🔄 Dashboard received sync status update:', lastMessage.data)
         handleSyncStatus(lastMessage.data)
-        // Update sync status immediately
+        // Update sync status immediately with progress
+        const statusData = lastMessage.data
         setSyncStatus(prev => ({
           ...prev,
-          isActive: lastMessage.data?.isActive || false,
-          progress: lastMessage.data?.progress || 0,
-          status: lastMessage.data?.status || 'idle'
+          isActive: statusData?.isActive !== undefined ? statusData.isActive : prev.isActive,
+          progress: statusData?.progress !== undefined ? statusData.progress : prev.progress,
+          status: statusData?.status || prev.status || 'idle',
+          message: statusData?.message || prev.message,
+          total: statusData?.total || prev.total,
+          synced: statusData?.synced || prev.synced
         }))
+        // Immediately refresh stats when sync status updates during active sync
+        if (statusData?.isActive && statusData?.synced) {
+          fetchStats(true)
+        }
         break
         
       case 'stats_updated':
@@ -731,11 +772,26 @@ const Dashboard = () => {
         
       case 'realtime_update':
         console.log('⚡ Dashboard received real-time update:', lastMessage.data)
-        // Handle general real-time updates - refresh all data
-        fetchStats(true)
+        // Handle general real-time updates - refresh all data immediately
+        fetchStats(true) // Force refresh to get latest stats
         fetchSyncStatus()
         if (gmailConnected) {
           fetchEmails(true)
+        }
+        break
+        
+      case 'sync_progress':
+        console.log('📊 Dashboard received sync progress update:', lastMessage.data)
+        // During sync, update stats more frequently
+        fetchStats(true)
+        // Update sync status from progress data
+        if (lastMessage.data) {
+          setSyncStatus(prev => ({
+            ...prev,
+            isActive: true,
+            progress: lastMessage.data.progress || prev.progress,
+            status: 'active'
+          }))
         }
         break
         
@@ -1014,61 +1070,205 @@ const Dashboard = () => {
   }
 
 
-  const syncGmailEmails = async () => {
-    if (!token) {
-      toast.error('Please login first')
-      return
-    }
+  // Continuous sync function that runs repeatedly
+  const performSync = useCallback(async (showNotifications = true) => {
+    if (!token || !gmailConnected) return
     
-    if (!gmailConnected) {
-      toast.error('Please connect your Gmail account first')
-      return
-    }
-    
-    setSyncLoading(true)
     try {
-      console.log('🔄 Starting Gmail sync...')
+      // First check if there are any new emails to sync
+      console.log('🔍 Checking for new emails from Gmail...')
+      const checkResult = await emailService.checkNewEmails()
+      
+      if (!checkResult.hasNewEmails) {
+        console.log('✅ No new emails to sync')
+        // Don't set sync as active if there are no new emails
+        if (showNotifications) {
+          // Only show notification if explicitly requested and there are no emails
+          // (Don't spam notifications for continuous sync checks)
+        }
+        return { success: true, hasNewEmails: false, message: 'No new emails to sync' }
+      }
+      
+      console.log(`📧 Found ${checkResult.estimatedCount || 0} new email(s) to sync`)
+      
+      // Only set sync as active if there are actually new emails
+      setSyncStatus(prev => ({ ...prev, isActive: true, status: 'active', progress: 0 }))
+      
+      console.log('🔄 Performing Gmail sync...')
       const data = await emailService.syncGmail()
       console.log('✅ Gmail sync response:', data)
       
       if (data.success) {
-        // Refresh data first - wait for everything to complete
-        await checkConnectionStatus()
-        await fetchStats() // Use optimized fetchStats
-        await fetchSyncStatus() // Update sync status
+        // Refresh data immediately - multiple times to catch updates
+        checkConnectionStatus()
+        fetchStats(true) // Force refresh with cache bypass
+        // Refresh again after a short delay to catch any late updates
+        setTimeout(() => {
+          fetchStats(true)
+          fetchEmails(true)
+        }, 500)
+        fetchSyncStatus() // Update sync status
         
-        // Always refresh emails to show updated list - wait for completion
-        await fetchEmails(true) // Force refresh to show synced emails in the list
+        // Always refresh emails to show updated list
+        fetchEmails(true) // Force refresh to show synced emails in the list
         
-        // Now show notification AFTER emails are loaded and visible
-        if (data.newEmailCount > 0) {
-          toast.success(`🎉 Found ${data.newEmailCount} new email${data.newEmailCount > 1 ? 's' : ''}!`, {
-            duration: 4000
-          })
-        } else if (data.checkedCount > 0) {
-          toast(`✅ No new emails (checked ${data.checkedCount} recent emails)`, {
-            duration: 3000,
-            icon: 'ℹ️'
-          })
-        } else {
-          toast('✅ Your inbox is up to date', {
-            duration: 3000,
-            icon: 'ℹ️'
-          })
+        // Show notification only if requested and there are new emails
+        if (showNotifications) {
+          if (data.newEmailCount > 0) {
+            toast.success(`🎉 Found ${data.newEmailCount} new email${data.newEmailCount > 1 ? 's' : ''}!`, {
+              duration: 3000
+            })
+          }
         }
+        
+        // Reset sync status after completion (but keep continuous sync active)
+        setTimeout(() => {
+          setSyncStatus(prev => ({
+            ...prev,
+            isActive: continuousSyncActive, // Keep active if continuous sync is running
+            status: continuousSyncActive ? 'active' : 'idle',
+            progress: continuousSyncActive ? prev.progress : 0
+          }))
+        }, 2000)
+        
+        return { success: true, hasNewEmails: data.newEmailCount > 0 }
       } else {
-        toast.error(data.message || 'Sync failed')
+        console.warn('⚠️ Sync returned unsuccessful:', data.message)
+        setSyncStatus(prev => ({ ...prev, isActive: continuousSyncActive, status: continuousSyncActive ? 'active' : 'idle' }))
+        return { success: false, error: data.message }
       }
     } catch (error) {
       console.error('❌ Sync error:', error)
-      const errorMessage = error?.response?.data?.message || error.message || 'Failed to sync emails'
-      toast.error(errorMessage)
-    } finally {
-      setSyncLoading(false)
+      setSyncStatus(prev => ({ ...prev, isActive: continuousSyncActive, status: continuousSyncActive ? 'active' : 'idle' }))
+      // Don't show error toast for continuous sync - just log it
+      if (showNotifications) {
+        const errorMessage = error?.response?.data?.message || error.message || 'Failed to sync emails'
+        toast.error(errorMessage)
+      }
+      return { success: false, error: error.message }
     }
-  }
+  }, [token, gmailConnected, continuousSyncActive, fetchStats, fetchEmails, checkConnectionStatus, fetchSyncStatus])
 
-  // Full Gmail sync (fetch ALL historical emails)
+  // Stop continuous sync - define this BEFORE startContinuousSync to avoid reference errors
+  const stopContinuousSync = useCallback((clearStorage = true) => {
+    if (continuousSyncIntervalRef.current) {
+      clearInterval(continuousSyncIntervalRef.current)
+      continuousSyncIntervalRef.current = null
+    }
+    setContinuousSyncActive(false)
+    // Clear from localStorage only if explicitly requested (on logout)
+    if (clearStorage && user?._id) {
+      localStorage.removeItem(getContinuousSyncKey())
+    }
+    setSyncStatus(prev => ({ ...prev, isActive: false, status: 'idle' }))
+    console.log('🛑 Continuous sync stopped', clearStorage ? '(cleared from storage)' : '(kept in storage)')
+  }, [user?._id, getContinuousSyncKey])
+
+  // Start continuous sync that runs until logout - defined AFTER stopContinuousSync
+  const startContinuousSync = useCallback((isRestore = false) => {
+    if (continuousSyncActive) {
+      console.log('🔄 Continuous sync already active')
+      return
+    }
+    
+    if (!token || !gmailConnected) {
+      if (!isRestore) {
+        toast.error('Please connect your Gmail account first')
+      }
+      return
+    }
+    
+    console.log(isRestore ? '🔄 Restoring continuous sync after page refresh...' : '🚀 Starting continuous sync...')
+    setContinuousSyncActive(true)
+    // Persist to localStorage
+    if (user?._id) {
+      localStorage.setItem(getContinuousSyncKey(), 'true')
+    }
+    setSyncStatus(prev => ({ ...prev, isActive: true, status: 'active' }))
+    
+    // Perform initial sync immediately (skip notification on restore)
+    performSync(!isRestore).then((result) => {
+      // Start continuous sync loop - check for new emails every 30 seconds
+      continuousSyncIntervalRef.current = setInterval(async () => {
+        if (!token || !gmailConnected) {
+          stopContinuousSync(false) // Don't clear storage, just stop interval
+          return
+        }
+        
+        console.log('🔄 Continuous sync cycle - checking for new emails...')
+        const syncResult = await performSync(false) // Don't show notifications for background syncs
+        
+        // Only refresh stats if there were actually emails synced
+        if (syncResult && syncResult.hasNewEmails) {
+          fetchStats(true) // Refresh stats after sync
+        }
+      }, 30000) // Check every 30 seconds
+    })
+    
+    if (!isRestore) {
+      toast.success('🔄 Continuous sync started! It will keep running until you log out.', {
+        duration: 4000
+      })
+    }
+  }, [continuousSyncActive, token, gmailConnected, user?._id, getContinuousSyncKey, performSync, fetchStats, stopContinuousSync])
+
+  // Sync button handler - starts continuous sync
+  const syncGmailEmails = async () => {
+    startContinuousSync()
+  }
+  
+  // Cleanup continuous sync on logout or unmount
+  useEffect(() => {
+    return () => {
+      if (continuousSyncIntervalRef.current) {
+        clearInterval(continuousSyncIntervalRef.current)
+      }
+    }
+  }, [])
+  
+  // Restore continuous sync from localStorage on mount/refresh
+  useEffect(() => {
+    if (user?._id && token && gmailConnected && !hasRestoredSyncRef.current) {
+      const stored = localStorage.getItem(getContinuousSyncKey())
+      if (stored === 'true' && !continuousSyncActive) {
+        hasRestoredSyncRef.current = true
+        console.log('🔄 Found stored continuous sync state, restoring after page refresh...')
+        // Small delay to ensure everything is initialized
+        setTimeout(() => {
+          if (token && gmailConnected && !continuousSyncActive) {
+            startContinuousSync(true) // Restore mode
+          }
+        }, 2000)
+      } else {
+        hasRestoredSyncRef.current = true // Mark as checked even if not restoring
+      }
+    }
+  }, [user?._id, token, gmailConnected, getContinuousSyncKey, startContinuousSync, continuousSyncActive])
+  
+  // Stop continuous sync when user logs out or Gmail disconnects
+  useEffect(() => {
+    if (!token) {
+      // User logged out - clear everything including localStorage
+      console.log('🚪 User logged out, stopping continuous sync and clearing storage...')
+      hasRestoredSyncRef.current = false // Reset restore flag
+      stopContinuousSync(true) // Clear storage on logout
+    } else if (!gmailConnected && continuousSyncActive) {
+      // Gmail disconnected but user still logged in - stop sync but keep state
+      console.log('📧 Gmail disconnected, pausing continuous sync (will resume if reconnected)...')
+      stopContinuousSync(false) // Don't clear storage, just stop the interval
+    } else if (gmailConnected && !continuousSyncActive && token && user?._id) {
+      // Gmail reconnected - check if we should restore
+      const stored = localStorage.getItem(getContinuousSyncKey())
+      if (stored === 'true' && !hasRestoredSyncRef.current) {
+        hasRestoredSyncRef.current = true
+        setTimeout(() => {
+          startContinuousSync(true) // Restore mode
+        }, 1000)
+      }
+    }
+  }, [token, gmailConnected, continuousSyncActive, getContinuousSyncKey, startContinuousSync, user?._id])
+
+  // Full Gmail sync (fetch ALL historical emails) - also starts continuous sync
   const handleFullSync = async () => {
     if (!token || !gmailConnected) {
       toast.error('Please connect Gmail first')
@@ -1076,6 +1276,16 @@ const Dashboard = () => {
     }
 
     setFullSyncLoading(true)
+    // Start continuous sync if not already active
+    if (!continuousSyncActive) {
+      startContinuousSync()
+    }
+    
+    // Immediately set sync status as active for faster polling
+    setSyncStatus(prev => ({ ...prev, isActive: true, status: 'active' }))
+    // Immediately refresh stats when sync starts
+    fetchStats(true)
+    
     try {
       console.log('🚀 Starting FULL Gmail sync...')
       const response = await api.post('/emails/gmail/full-sync')
@@ -1089,25 +1299,36 @@ const Dashboard = () => {
           ? `about ${timeEstimate.min} minutes`
           : `${timeEstimate.min}-${timeEstimate.max} minutes`
         
-        toast.success(`📥 Full sync started! All emails will be synced in ${timeText}.`, {
+        toast.success(`📥 Full sync started! All emails will be synced in ${timeText}. Continuous sync is active.`, {
           duration: 6000
         })
         
-        // Poll for updates every 10 seconds
-        const pollInterval = setInterval(async () => {
-          await fetchStats(true)
-          await fetchEmails(true)
-        }, 10000)
+        // Poll for updates more frequently during full sync (every 2 seconds)
+        // This is in addition to the continuous polling
+        const pollInterval = setInterval(() => {
+          if (gmailConnected && token) {
+            fetchStats(true)
+            fetchEmails(true)
+          }
+        }, 2000) // More frequent updates during full sync
         
-        // Clear after max time + buffer
+        // Clear after max time + buffer, but keep continuous sync running
         const maxTimeMs = (timeEstimate.max + 5) * 60 * 1000
-        setTimeout(() => clearInterval(pollInterval), maxTimeMs)
+        setTimeout(() => {
+          clearInterval(pollInterval)
+          setFullSyncLoading(false)
+          // Don't reset sync status - continuous sync keeps it active
+          fetchStats(true) // Final refresh
+          toast.success('✅ Full sync completed! Continuous sync will keep checking for new emails.', {
+            duration: 4000
+          })
+        }, maxTimeMs)
       }
     } catch (error) {
       console.error('❌ Full sync error:', error)
       toast.error(error?.response?.data?.message || 'Failed to start full sync')
-    } finally {
       setFullSyncLoading(false)
+      // Don't stop continuous sync on error - let it keep trying
     }
   }
 
@@ -1729,19 +1950,28 @@ const Dashboard = () => {
                         <button 
                           onClick={syncGmailEmails}
                           disabled={syncLoading || fullSyncLoading}
-                          className="flex-1 bg-blue-500 text-white py-2 rounded-lg font-semibold hover:bg-blue-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                          className={`flex-1 py-2 rounded-lg font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
+                            continuousSyncActive 
+                              ? 'bg-green-500 text-white hover:bg-green-600' 
+                              : 'bg-blue-500 text-white hover:bg-blue-600'
+                          }`}
                         >
                           {syncLoading ? (
                             <>
                               <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                               Syncing...
                             </>
+                          ) : continuousSyncActive ? (
+                            <>
+                              <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                              Continuous Active
+                            </>
                           ) : (
                             <>
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                               </svg>
-                              Sync New
+                              Start Sync
                             </>
                           )}
                         </button>
@@ -1832,15 +2062,18 @@ const Dashboard = () => {
                   <div className="flex items-center justify-between mb-1">
                     <h3 className="text-lg font-bold text-slate-800">Sync Status</h3>
                     <span className={`px-2 py-1 text-white text-xs font-medium rounded-full ${
+                      continuousSyncActive ? 'bg-green-500 animate-pulse' :
                       syncStatus.isActive ? 'bg-green-500' : 
                       syncStatus.status === 'idle' ? 'bg-gray-500' : 'bg-blue-500'
                     }`}>
-                      {syncStatus.isActive ? 'Active' : 
+                      {continuousSyncActive ? 'Continuous' :
+                       syncStatus.isActive ? 'Active' : 
                        syncStatus.status === 'idle' ? 'Idle' : syncStatus.status || 'Checking...'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 mb-3">
-                    {syncStatus.isActive ? 'Syncing in real-time' : 
+                    {continuousSyncActive ? 'Continuous sync active - checking every 30s' :
+                     syncStatus.isActive ? 'Syncing in real-time' : 
                      syncStatus.status === 'idle' ? 'Ready to sync' : 
                      'All systems operational'}
                   </p>
@@ -1851,6 +2084,16 @@ const Dashboard = () => {
                       {syncStatus.progress || 0}%
                     </h4>
                     <p className="text-xs text-slate-600">Progress</p>
+                    {syncStatus.synced > 0 && syncStatus.total > 0 && (
+                      <p className="text-xs text-slate-500 mt-1">
+                        {syncStatus.synced}/{syncStatus.total} emails
+                      </p>
+                    )}
+                    {syncStatus.message && (
+                      <p className="text-xs text-slate-600 mt-2 italic">
+                        {syncStatus.message}
+                      </p>
+                    )}
                   </div>
 
                   {/* Check Status Button */}
