@@ -16,7 +16,7 @@ This file contains **LIVE CREDENTIALS** that are currently exposed in your codeb
 
 ### 1. MongoDB Atlas Credentials
 ```
-mongodb+srv://username:password@cluster.mongodb.net/...
+mongodb+srv://YOUR_USERNAME:YOUR_PASSWORD@YOUR_CLUSTER.mongodb.net/...
 ```
 - **Username:** [REDACTED]
 - **Password:** [REDACTED]

@@ -27,7 +27,7 @@ const mongoUri = process.env.MONGO_URI;
 
 **❌ BAD:**
 ```javascript
-const mongoUri = 'mongodb+srv://user:pass@cluster.mongodb.net';
+const mongoUri = 'mongodb+srv://username:password@cluster.mongodb.net';
 ```
 
 ### 2. Use .env Files (Local Development)

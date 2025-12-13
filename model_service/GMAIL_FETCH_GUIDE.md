@@ -12,7 +12,8 @@ This guide explains how to fetch emails directly from Gmail API with full conten
 1. **MongoDB Atlas Connection**: Environment variables set
    ```bash
    # Set MONGO_URI in your .env file (never commit actual credentials)
-   MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/sortify?retryWrites=true&w=majority
+   # Replace YOUR_USERNAME, YOUR_PASSWORD, YOUR_CLUSTER with actual values
+   MONGO_URI=mongodb+srv://YOUR_USERNAME:YOUR_PASSWORD@YOUR_CLUSTER.mongodb.net/sortify?retryWrites=true&w=majority
    ```
 
 2. **User with Gmail Connected**: At least one user in the database must have:
