@@ -68,10 +68,19 @@ Sortify is a cutting-edge full-stack application that uses machine learning to a
    - Create Python virtual environment in `model_service/venv/`
    - Install Python ML dependencies
 
-3. **Environment Setup** _(Already configured)_
+3. **Environment Setup**
    
-   The `.env` file in the `server/` directory is already set up with default values.
-   You can modify it if needed for custom configuration.
+   Copy the environment template and configure your secrets:
+   ```bash
+   cp env.example .env
+   ```
+   
+   Edit `.env` and fill in your actual credentials:
+   - MongoDB Atlas connection string
+   - Google OAuth Client ID and Secret
+   - JWT Secret (generate with: `openssl rand -hex 64`)
+   
+   ⚠️ **Never commit `.env` file to git!** It's already in `.gitignore`.
 
 4. **Start the application**
    ```bash
@@ -147,16 +156,50 @@ npm run test:model
    npm start
    ```
 
+## 🔒 Security
+
+**Important**: This repository uses environment variables for all sensitive configuration. Never commit secrets or API keys.
+
+### Security Checklist
+
+- ✅ All secrets use environment variables (no hardcoded credentials)
+- ✅ `.env` files are in `.gitignore`
+- ✅ `docker-compose.yml` uses environment variable substitution
+- ✅ Documentation contains only placeholder examples
+
+### Quick Security Checks
+
+Before committing, run:
+```bash
+# Linux/Mac
+./scripts/check-secrets.sh
+
+# Windows
+.\scripts\check-secrets.ps1
+```
+
+### Setup Pre-commit Hook (Recommended)
+
+To automatically check for secrets before each commit:
+```bash
+# Linux/Mac
+cp .git/hooks/pre-commit.example .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+📖 **See [SECURITY.md](SECURITY.md) for detailed security guidelines.**
+
 ## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/amazing-feature`
 3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass: `npm test`
-6. Commit your changes: `git commit -m 'Add amazing feature'`
-7. Push to the branch: `git push origin feature/amazing-feature`
-8. Open a Pull Request
+4. **Check for secrets**: Run `./scripts/check-secrets.sh` before committing
+5. Add tests for new functionality
+6. Ensure all tests pass: `npm test`
+7. Commit your changes: `git commit -m 'Add amazing feature'`
+8. Push to the branch: `git push origin feature/amazing-feature`
+9. Open a Pull Request
 
 ## 📄 License
 

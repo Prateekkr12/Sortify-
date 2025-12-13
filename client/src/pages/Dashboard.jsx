@@ -999,13 +999,15 @@ const Dashboard = () => {
   // Load emails when filters change (handled by main useEffect with debounce)
 
   // Load email details when selection changes
+  // FIXED: Removed 'emails' from dependency array to prevent infinite reload loop
+  // Only reload when selectedEmailId actually changes, not when emails list updates
   useEffect(() => {
     if (selectedEmailId) {
       loadEmailDetails(selectedEmailId)
     } else {
       setSelectedEmail(null)
     }
-  }, [selectedEmailId, emails])
+  }, [selectedEmailId]) // Only depend on selectedEmailId, not emails array
 
   // Realtime updates handled by WebSocket (removed duplicate EventSource)
 
@@ -1341,14 +1343,22 @@ const Dashboard = () => {
 
     setReclassifyLoading(true)
     try {
-      console.log('🔄 Starting reclassification via script...')
-      // Use the script-based reclassification endpoint
-      const response = await api.post('/emails/reclassify-all-script')
+      console.log('🔄 Starting reclassification...')
+      // Use the rule-based reclassification endpoint (more reliable than script-based)
+      const response = await api.post('/emails/reclassify-all-rule-based', {
+        preserveManual: true,
+        batchSize: 100
+      })
       
       if (response.data.success) {
-        toast.success('🤖 Reclassification started! All emails will be reclassified based on latest keywords. This will take 10-20 minutes.', {
-          duration: 6000
-        })
+        const estimate = response.data.estimatedTime || {}
+        const emailCount = estimate.emailCount || 'all'
+        const estimatedMinutes = estimate.estimatedMinutes || '10-20'
+        
+        toast.success(
+          `🤖 Reclassification started! Processing ${emailCount} emails (est. ${estimatedMinutes} min). This will reclassify all emails based on latest keywords.`,
+          { duration: 6000 }
+        )
         
         // Poll for updates every 10 seconds
         const pollInterval = setInterval(async () => {
@@ -1357,8 +1367,9 @@ const Dashboard = () => {
           setCategoryTabsRefresh(prev => prev + 1) // Refresh category tabs
         }, 10000)
         
-        // Clear after 25 minutes
-        setTimeout(() => clearInterval(pollInterval), 1500000)
+        // Clear after estimated time + buffer (convert minutes to milliseconds)
+        const clearTime = (estimate.estimatedSeconds || 1200) * 1000 + 300000 // Add 5 min buffer
+        setTimeout(() => clearInterval(pollInterval), clearTime)
       }
     } catch (error) {
       console.error('❌ Reclassification error:', error)

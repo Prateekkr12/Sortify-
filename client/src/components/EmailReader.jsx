@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ModernIcon from './ModernIcon'
 import QuickReply from './QuickReply'
@@ -93,10 +93,16 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
   const [loadError, setLoadError] = useState(null)
   const [isThread, setIsThread] = useState(false)
   const [downloadingAttachmentId, setDownloadingAttachmentId] = useState(null)
+  
+  // Track last loaded email ID to prevent duplicate loads
+  const lastLoadedEmailIdRef = useRef(null)
 
   // Load thread messages when email changes
+  // FIXED: Use email._id instead of email object to prevent reloads when only object reference changes
   useEffect(() => {
-    if (email) {
+    // Only load if email ID actually changed and we're not already loading
+    if (email?._id && email._id !== lastLoadedEmailIdRef.current && !loadingThread) {
+      lastLoadedEmailIdRef.current = email._id
       // Reset states
       setThreadMessages([])
       setLoadError(null)
@@ -172,8 +178,14 @@ const EmailReader = ({ email, threadContainerId, onArchive, onUnarchive, onDelet
             setLoadingThread(false)
           })
       }
+    } else if (!email?._id) {
+      // Reset when email becomes null
+      lastLoadedEmailIdRef.current = null
+      setThreadMessages([])
+      setLoadError(null)
+      setIsThread(false)
     }
-  }, [email])
+  }, [email?._id]) // FIXED: Only depend on email ID, not the entire object
 
   const handleReplySuccess = async (sentEmailData) => {
     // Close the reply panel

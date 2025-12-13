@@ -203,15 +203,21 @@ const shouldExcludeFromCategory = (from, subject, snippet, categoryConfig) => {
   // Check exclusion names (exact or substring match)
   if (categoryConfig.patterns && categoryConfig.patterns.excludeNames) {
     const name = extractSenderName(from)
-    if (name) {
-      const lowerName = name.toLowerCase()
-      for (const excludeName of categoryConfig.patterns.excludeNames) {
-        const lowerExclude = excludeName.toLowerCase()
-        // Check for exact match or substring match
+    const fromLower = (from || '').toLowerCase()
+    for (const excludeName of categoryConfig.patterns.excludeNames) {
+      const lowerExclude = excludeName.toLowerCase()
+      // Check both extracted name and full sender string
+      if (name) {
+        const lowerName = name.toLowerCase()
         if (lowerName === lowerExclude || lowerName.includes(lowerExclude)) {
           console.log(`⛔ Name exclusion match: ${name} excludes ${excludeName}`)
           return true
         }
+      }
+      // Also check full sender string for patterns like "'What's Happening' via..."
+      if (fromLower.includes(lowerExclude)) {
+        console.log(`⛔ Sender exclusion match: ${from} excludes ${excludeName}`)
+        return true
       }
     }
   }
@@ -280,6 +286,44 @@ const matchSenderPatterns = (from, category) => {
 }
 
 /**
+ * Check if subject contains category name keyword (highest priority check)
+ * @param {string} subject - Email subject
+ * @param {string} categoryName - Category name
+ * @returns {boolean} - True if subject contains category keyword
+ */
+const subjectContainsCategoryKeyword = (subject, categoryName) => {
+  if (!subject || !categoryName) return false
+  
+  const subjectLower = subject.toLowerCase()
+  
+  // Map category names to their keyword variations
+  const categoryKeywords = {
+    'HOD': ['hod'],
+    'NPTEL': ['nptel'],
+    'Professor': ['professor'],
+    'Placement': ['placement'],
+    'Promotions': ['promotions', 'promotion'],
+    'Whats happening': ['what\'s happening', 'whats happening'],
+    'E-Zone': ['e-zone', 'ezone'],
+    'Other': [] // Skip "Other" category
+  }
+  
+  const keywords = categoryKeywords[categoryName]
+  if (!keywords || keywords.length === 0) return false
+  
+  // Check if any keyword appears in subject (using word boundaries for better matching)
+  for (const keyword of keywords) {
+    // Use word boundary regex to match whole words only
+    const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    if (regex.test(subject)) {
+      return true
+    }
+  }
+  
+  return false
+}
+
+/**
  * Enhanced keyword-based classification with multi-tier scoring
  * @param {Object} email - Email data {subject, from, snippet, body}
  * @param {string} userId - User ID
@@ -306,6 +350,27 @@ export const classifyWithKeywords = async (email, userId) => {
       categoryConfigs[category.name] = KEYWORD_CATEGORIES[category.name] || null
     }
     
+    // PRIORITY 0: Check if subject contains category name keyword (HIGHEST PRIORITY)
+    // This check happens before everything else - subject match takes precedence
+    for (const category of categories) {
+      if (subjectContainsCategoryKeyword(subject, category.name)) {
+        const categoryConfig = categoryConfigs[category.name]
+        if (categoryConfig) {
+          // Skip if excluded
+          if (!shouldExcludeFromCategory(from, subject, snippet, categoryConfig)) {
+            console.log(`✅ Subject category keyword match: "${subject}" → ${category.name} (confidence: 0.98)`)
+            return {
+              label: category.name,
+              confidence: 0.98, // Very high confidence for explicit category name in subject
+              method: 'subject-category-keyword',
+              matchedPattern: `Subject contains "${category.name}" keyword`,
+              matchedValue: subject
+            }
+          }
+        }
+      }
+    }
+    
     // Separate categories by priority
     const highPriorityCategories = categories.filter(cat => {
       const config = categoryConfigs[cat.name]
@@ -320,10 +385,46 @@ export const classifyWithKeywords = async (email, userId) => {
       return config && config.priority === 'low'
     })
     
-    // Sort high-priority categories to check Professor before Placement
+    // Sort high-priority categories - check Promotions, What's Happening, and HOD first if sender matches
+    const fromLower = (from || '').toLowerCase()
+    const domain = extractSenderDomain(from) || ''
+    const domainLower = domain.toLowerCase()
+    
+    const isPromotionsSender = fromLower.includes("'promotions' via") || 
+                              fromLower.includes("promotions via") ||
+                              fromLower.includes("promotions' via")
+    const isWhatsHappeningSender = fromLower.includes("what's happening") || 
+                                   fromLower.includes("whats happening") ||
+                                   fromLower.includes("batch2022-2023")
+    const isHODSender = fromLower.includes('hod cse') || 
+                       fromLower.includes('hod ') ||
+                       domainLower.includes('hod.') ||
+                       domainLower.startsWith('hod') ||
+                       fromLower.includes('head of department') ||
+                       fromLower.includes('head of dept')
+    
     highPriorityCategories.sort((a, b) => {
-      if (a.name === 'Professor' && b.name !== 'Professor') return -1
-      if (a.name !== 'Professor' && b.name === 'Professor') return 1
+      // Prioritize "Promotions" if sender matches its patterns
+      if (isPromotionsSender) {
+        if (a.name === 'Promotions' && b.name !== 'Promotions') return -1
+        if (a.name !== 'Promotions' && b.name === 'Promotions') return 1
+      }
+      // Prioritize "Whats happening" if sender matches its patterns
+      if (isWhatsHappeningSender) {
+        if (a.name === 'Whats happening' && b.name !== 'Whats happening') return -1
+        if (a.name !== 'Whats happening' && b.name === 'Whats happening') return 1
+      }
+      // Prioritize "HOD" if sender matches its patterns - BEFORE Professor
+      if (isHODSender) {
+        if (a.name === 'HOD' && b.name !== 'HOD') return -1
+        if (a.name !== 'HOD' && b.name === 'HOD') return 1
+      }
+      // Check HOD before Professor (HOD takes priority)
+      if (a.name === 'HOD' && b.name === 'Professor') return -1
+      if (a.name === 'Professor' && b.name === 'HOD') return 1
+      // Otherwise, check Professor before Placement (original logic)
+      if (a.name === 'Professor' && b.name !== 'Professor' && b.name !== 'HOD') return -1
+      if (a.name !== 'Professor' && a.name !== 'HOD' && b.name === 'Professor') return 1
       if (a.name === 'Other' && b.name !== 'Other') return 1  // Other should be last
       if (a.name !== 'Other' && b.name === 'Other') return -1
       return 0
@@ -344,11 +445,13 @@ export const classifyWithKeywords = async (email, userId) => {
         continue  // Skip this category
       }
       
-      // First, check sender patterns (high confidence) - these take priority
+      // PRIORITY 1: Check sender patterns (high confidence) - these take priority after subject
       const senderMatch = matchSenderPatterns(from, category)
       if (senderMatch) {
-        // For high-confidence sender matches (especially Professor, ServiceNow), return immediately
+        // For high-confidence sender matches, return immediately
         if (senderMatch.confidence >= 0.90 && (
+          category.name === 'Promotions' ||
+          category.name === 'Whats happening' ||
           category.name === 'Professor' || 
           category.name === 'Other' ||
           category.name === 'HOD' ||
@@ -366,13 +469,14 @@ export const classifyWithKeywords = async (email, userId) => {
         allMatches.push(senderMatch)
       }
       
-      // Then check keyword matching (only if no high-confidence sender match)
-      const keywordResults = matchKeywordsWithWeights(subject, snippet, body, categoryConfig)
+      // PRIORITY 2: Check body for keywords (only if no high-confidence sender match)
+      // Check body separately (not subject/snippet) since subject was already checked above
+      const bodyKeywordResults = matchKeywordsWithWeights('', '', body, categoryConfig)
       
-      if (keywordResults.score > 0) {
+      if (bodyKeywordResults.score > 0) {
         // Calculate confidence based on score
         const categoryWeight = CATEGORY_WEIGHTS[category.name] || 1.0
-        const baseScore = keywordResults.score * categoryWeight
+        const baseScore = bodyKeywordResults.score * categoryWeight
         
         // Normalize score to confidence (0.75 to 0.90 range)
         // Higher scores = higher confidence, but cap at 0.90 for keyword-only matches
@@ -382,10 +486,10 @@ export const classifyWithKeywords = async (email, userId) => {
         allMatches.push({
           category: category.name,
           confidence: Math.round(confidence * 100) / 100,
-          method: keywordResults.matchedPhrases.length > 0 ? 'keyword+phrase' : 'keyword',
-          matchedKeywords: keywordResults.matchedKeywords,
-          matchedPhrases: keywordResults.matchedPhrases,
-          keywordScore: keywordResults.score,
+          method: bodyKeywordResults.matchedPhrases.length > 0 ? 'body-keyword+phrase' : 'body-keyword',
+          matchedKeywords: bodyKeywordResults.matchedKeywords,
+          matchedPhrases: bodyKeywordResults.matchedPhrases,
+          keywordScore: bodyKeywordResults.score,
           priority: categoryConfig.priority || 'normal'
         })
       }

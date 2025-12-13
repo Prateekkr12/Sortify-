@@ -2635,6 +2635,9 @@ router.post('/reclassify-all-rule-based', protect, asyncHandler(async (req, res)
     
     console.log(`🔄 Starting rule-based reclassification for user: ${userId}`)
     
+    // Get time estimate before starting
+    const timeEstimate = await estimateReclassificationTime(userId)
+    
     // Start reclassification asynchronously
     reclassifyAllEmailsWithRuleBased(userId, { preserveManual, batchSize })
       .then(result => {
@@ -2658,11 +2661,12 @@ router.post('/reclassify-all-rule-based', protect, asyncHandler(async (req, res)
         })
       })
     
-    // Return immediately
+    // Return immediately with time estimate
     res.json({
       success: true,
       message: 'Rule-based reclassification started. This may take some time.',
-      userId: userId
+      userId: userId,
+      estimatedTime: timeEstimate
     })
     
   } catch (error) {

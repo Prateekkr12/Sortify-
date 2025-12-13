@@ -42,7 +42,9 @@ def fetch_emails_by_category(fetcher, category, min_count=100):
     # Get emails from database that match this category
     try:
         from pymongo import MongoClient
-        uri = os.getenv('MONGO_URI', 'mongodb+srv://sachin-iam:Sachin123@cluster0.eypacgq.mongodb.net/sortify?retryWrites=true&w=majority&appName=Cluster0')
+        uri = os.getenv('MONGO_URI')
+        if not uri:
+            raise ValueError("MONGO_URI environment variable is required. Please set it in your .env file.")
         client = MongoClient(uri)
         
         # Check both databases

@@ -4,6 +4,22 @@
  */
 
 /**
+ * Predefined distinct colors for default categories
+ * Each category has a unique, vibrant color
+ */
+const DEFAULT_CATEGORY_COLORS = {
+  'All': '#64748b',           // Slate gray
+  'Placement': '#3B82F6',      // Blue
+  'NPTEL': '#8B5CF6',          // Purple
+  'HOD': '#EF4444',            // Red
+  'E-Zone': '#06B6D4',         // Cyan (changed from green to be distinct)
+  'Promotions': '#F59E0B',     // Amber
+  'Whats happening': '#EC4899', // Pink
+  'Professor': '#6366F1',      // Indigo
+  'Other': '#10B981'           // Green (changed from gray to be distinct)
+}
+
+/**
  * Simple hash function to convert string to number
  * @param {string} str - String to hash
  * @returns {number} Hash value
@@ -141,6 +157,87 @@ export function getCategoryColor(categoryName, format = 'gradient') {
     return format === 'tailwind' ? 'from-gray-500 to-gray-600' : '#6b7280'
   }
   
+  // Check if this is a default category with predefined color
+  const normalizedName = categoryName.trim()
+  if (DEFAULT_CATEGORY_COLORS[normalizedName]) {
+    const predefinedHex = DEFAULT_CATEGORY_COLORS[normalizedName]
+    
+    // Convert hex to HSL for format conversions
+    const hexToHsl = (hex) => {
+      const r = parseInt(hex.slice(1, 3), 16) / 255
+      const g = parseInt(hex.slice(3, 5), 16) / 255
+      const b = parseInt(hex.slice(5, 7), 16) / 255
+      
+      const max = Math.max(r, g, b)
+      const min = Math.min(r, g, b)
+      let h, s, l = (max + min) / 2
+      
+      if (max === min) {
+        h = s = 0
+      } else {
+        const d = max - min
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+        switch (max) {
+          case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
+          case g: h = ((b - r) / d + 2) / 6; break
+          case b: h = ((r - g) / d + 4) / 6; break
+        }
+      }
+      return { h: h * 360, s: s * 100, l: l * 100 }
+    }
+    
+    const hsl = hexToHsl(predefinedHex)
+    const { h, s, l } = hsl
+    
+    switch (format) {
+      case 'hex':
+        return predefinedHex
+      case 'rgb': {
+        const rgb = hslToRgb(h, s, l)
+        return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`
+      }
+      case 'hsl':
+        return `hsl(${h}, ${s}%, ${l}%)`
+      case 'gradient': {
+        const endL = Math.max(l - 5, 35)
+        const rgb = hslToRgb(h, s, l)
+        const endRgb = hslToRgb(h, s, endL)
+        const getTailwindColor = (r, g, b) => {
+          const brightness = (r + g + b) / 3
+          if (brightness < 85) return 'gray'
+          if (brightness < 170) return 'slate'
+          if (r > g && r > b) {
+            if (r > 200) return 'red'
+            if (r > 150) return 'orange'
+            return 'amber'
+          }
+          if (g > r && g > b) {
+            if (g > 200) return 'green'
+            if (g > 150) return 'emerald'
+            return 'lime'
+          }
+          if (b > r && b > g) {
+            if (b > 200) return 'blue'
+            if (b > 150) return 'cyan'
+            return 'sky'
+          }
+          if (r > 200 && g > 150) return 'yellow'
+          if (r > 150 && b > 150) return 'purple'
+          if (g > 150 && b > 150) return 'teal'
+          return 'gray'
+        }
+        const baseColor = getTailwindColor(rgb.r, rgb.g, rgb.b)
+        const endColor = getTailwindColor(endRgb.r, endRgb.g, endRgb.b)
+        return `from-${baseColor}-500 to-${endColor}-600`
+      }
+      case 'tailwind':
+        return getCategoryColor(categoryName, 'gradient')
+      default:
+        return predefinedHex
+    }
+  }
+  
+  // For custom categories, use hash-based generation
   const hsl = generateHSLColor(categoryName)
   const { h, s, l } = hsl
   
@@ -217,6 +314,25 @@ export function getCategorySolidColor(categoryName) {
     return 'bg-gray-500'
   }
   
+  // Map default categories to their specific solid colors
+  const normalizedName = categoryName.trim()
+  const solidColorMap = {
+    'All': 'bg-slate-500',
+    'Placement': 'bg-blue-500',
+    'NPTEL': 'bg-purple-500',
+    'HOD': 'bg-red-500',
+    'E-Zone': 'bg-cyan-500',
+    'Promotions': 'bg-amber-500',
+    'Whats happening': 'bg-pink-500',
+    'Professor': 'bg-indigo-500',
+    'Other': 'bg-emerald-500'
+  }
+  
+  if (solidColorMap[normalizedName]) {
+    return solidColorMap[normalizedName]
+  }
+  
+  // For custom categories, use hash-based generation
   const hsl = generateHSLColor(categoryName)
   const { h, s, l } = hsl
   const rgb = hslToRgb(h, s, l)
@@ -266,6 +382,25 @@ export function getCategoryBorderColor(categoryName) {
     return 'border-gray-300'
   }
   
+  // Map default categories to their specific border colors
+  const normalizedName = categoryName.trim()
+  const borderColorMap = {
+    'All': 'border-slate-300',
+    'Placement': 'border-blue-300',
+    'NPTEL': 'border-purple-300',
+    'HOD': 'border-red-300',
+    'E-Zone': 'border-cyan-300',
+    'Promotions': 'border-amber-300',
+    'Whats happening': 'border-pink-300',
+    'Professor': 'border-indigo-300',
+    'Other': 'border-emerald-300'
+  }
+  
+  if (borderColorMap[normalizedName]) {
+    return borderColorMap[normalizedName]
+  }
+  
+  // For custom categories, use hash-based generation
   const hsl = generateHSLColor(categoryName)
   const { h, s, l } = hsl
   const rgb = hslToRgb(h, s, Math.max(l - 10, 30)) // Darker border
@@ -290,6 +425,25 @@ export function getCategoryLightColors(categoryName) {
     return 'bg-gray-100 text-gray-800'
   }
   
+  // Map default categories to their specific light colors
+  const normalizedName = categoryName.trim()
+  const lightColorMap = {
+    'All': 'bg-slate-100 text-slate-800',
+    'Placement': 'bg-blue-100 text-blue-800',
+    'NPTEL': 'bg-purple-100 text-purple-800',
+    'HOD': 'bg-red-100 text-red-800',
+    'E-Zone': 'bg-cyan-100 text-cyan-800',
+    'Promotions': 'bg-amber-100 text-amber-800',
+    'Whats happening': 'bg-pink-100 text-pink-800',
+    'Professor': 'bg-indigo-100 text-indigo-800',
+    'Other': 'bg-emerald-100 text-emerald-800'
+  }
+  
+  if (lightColorMap[normalizedName]) {
+    return lightColorMap[normalizedName]
+  }
+  
+  // For custom categories, use hash-based generation
   const hsl = generateHSLColor(categoryName)
   const { h } = hsl
   

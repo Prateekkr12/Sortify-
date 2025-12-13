@@ -28,7 +28,7 @@ export const KEYWORD_CATEGORIES = {
       'glassdoor', 'hiring manager', 'hr', 'recruiter', 'talent acquisition',
       'work from home', 'wfh', 'remote', 'hybrid', 'onsite', 'lpa', 'lakh',
       'crore', 'rs.', 'rupees', 'stipend', 'bonus', 'benefits', 'perks',
-      'professional', 'industry', 'corporate', 'cv', 'portfolio', 'github',
+      'professional', 'industry', 'corporate', 'cv', 'portfolio',
       'leetcode', 'hackerrank', 'codechef', 'codeforces', 'aptitude', 'reasoning',
       'verbal', 'written test', 'online test', 'offline test', 'walk-in',
       'walk in', 'telephonic', 'phone interview', 'video call', 'zoom interview',
@@ -102,11 +102,13 @@ export const KEYWORD_CATEGORIES = {
       // Exclude specific sender domains/names that should not match Placement
       excludeDomains: [
         'service-now.com', 'servicenow.com', 'nowlearning.com',
-        'accounts.google.com', 'mail.google.com', 'google.com'
+        'accounts.google.com', 'mail.google.com', 'google.com',
+        'geeksforgeeks.org', 'geeksforgeeks.com'
       ],
       excludeNames: [
         'ServiceNow', 'ServiceNow University', 'nowlearning',
-        'Google', 'Google Account', 'Google Security', 'Gmail Security', 'Security Alert'
+        'Google', 'Google Account', 'Google Security', 'Gmail Security', 'Security Alert',
+        'GeeksforGeeks', 'Geeks for Geeks', 'GfG'
       ]
     }
   },
@@ -191,7 +193,7 @@ export const KEYWORD_CATEGORIES = {
   },
   
   'HOD': {
-    priority: 'low',
+    priority: 'high',  // Changed to high to catch before Professor
     primaryKeywords: [
       'hod', 'head', 'department', 'notice', 'announcement', 'administrative',
       'official', 'mandatory', 'circular', 'reschedule', 'evaluation date',
@@ -229,11 +231,19 @@ export const KEYWORD_CATEGORIES = {
     exclusionKeywords: ['placement drive', 'job opportunity', 'nptel course', 'promotion offer'],
     patterns: {
       senderDomains: [
-        'sharda.ac.in', 'hod.cse@sharda.ac.in', 'cse.sharda.ac.in'
+        'hod.cse@sharda.ac.in', 'hod.ece@sharda.ac.in', 'hod.me@sharda.ac.in',
+        'hod.ce@sharda.ac.in', 'hod.eee@sharda.ac.in', 'hod.it@sharda.ac.in',
+        'hod.ae@sharda.ac.in', 'hod.civil@sharda.ac.in', 'hod.chem@sharda.ac.in',
+        'hod.bt@sharda.ac.in', 'hod.biotech@sharda.ac.in', 'hod.mba@sharda.ac.in',
+        'hod.law@sharda.ac.in', 'hod.pharmacy@sharda.ac.in', 'hod.medical@sharda.ac.in',
+        'hod.nursing@sharda.ac.in', 'hod.physiotherapy@sharda.ac.in',
+        'hod.cse.sharda.ac.in', 'hod.ece.sharda.ac.in'
       ],
       senderNames: [
-        'HOD', 'Head of Department', 'HOD CSE', 'Head CSE', 'Department Head',
-        'Dept Head', 'HoD', 'Head of Dept', 'Dr. Sudeep Varshney'
+        'HOD CSE', 'HOD ECE', 'HOD ME', 'HOD CE', 'HOD EEE', 'HOD IT', 'HOD AE',
+        'HOD', 'Head of Department', 'Head CSE', 'Department Head',
+        'Dept Head', 'HoD', 'Head of Dept', 'Head of Department CSE',
+        'Head of Department ECE', 'Dr. Sudeep Varshney'
       ]
     }
   },
@@ -287,7 +297,8 @@ export const KEYWORD_CATEGORIES = {
       'placement', 'nptel', 'job', 'interview',
       'chatgpt', 'openai', 'chat gpt', 'open ai', 
       'noreply@email.openai.com', 'email.openai.com',
-      'geeksforgeeks', 'geeks for geeks', 'gfg', 'geeksforgeeks.org'
+      'geeksforgeeks', 'geeks for geeks', 'gfg', 'geeksforgeeks.org',
+      'github', 'github.com', 'support@github.com', 'secrets detected'
     ],
     patterns: {
       senderDomains: [
@@ -301,11 +312,13 @@ export const KEYWORD_CATEGORIES = {
       // Exclude specific sender domains/names that should not match E-Zone
       excludeDomains: [
         'email.openai.com', 'openai.com', 'chatgpt.com',
-        'geeksforgeeks.org', 'geeksforgeeks.com'
+        'geeksforgeeks.org', 'geeksforgeeks.com',
+        'github.com', 'githubusercontent.com'
       ],
       excludeNames: [
         'ChatGPT', 'OpenAI', 'ChatGPT Team',
-        'GeeksforGeeks', 'Geeks for Geeks', 'GfG'
+        'GeeksforGeeks', 'Geeks for Geeks', 'GfG',
+        'GitHub', 'GitHub Support', 'GitHub Security'
       ]
     }
   },
@@ -313,15 +326,19 @@ export const KEYWORD_CATEGORIES = {
   'Promotions': {
     priority: 'high',
     primaryKeywords: [
-      'offer', 'discount', 'deal', 'sale', 'promotion', 'marketing',
+      'offer', 'discount', 'deal', 'sale', 'promotion', 'promotions', 'marketing',
       'advertisement', 'unsubscribe', 'buy', 'limited time', 'special',
       'exclusive', 'save', 'buy now', 'campaign', 'promotional', 'promo',
       'flash sale', 'clearance sale', 'end of season', 'seasonal offer',
       'festival offer', 'holiday offer', 'anniversary sale', 'grand sale',
-      'mega sale', 'super sale', 'big sale', 'huge discount', 'massive discount'
+      'mega sale', 'super sale', 'big sale', 'huge discount', 'massive discount',
+      // Healthcare promotional keywords
+      'healthcare privilege', 'orthopaedic consultations', 'flat discount',
+      '50% off', '50 percent off', 'exclusive healthcare', 'healthcare offer',
+      'medical consultation discount', 'consultation discount', 'healthcare discount'
     ],
     secondaryKeywords: [
-      'free screening camp', 'shardacare', 'healthcity',
+      'free screening camp', 'shardacare', 'healthcity', 'shardacare healthcity',
       'breast health screening', 'breast cancer awareness', 'welcoming dr',
       'consultant', 'obstetrics', 'gynaecology', 'hosting',
       'delighted to welcome', 'extensive experience', 'promoting women\'s health',
@@ -331,7 +348,17 @@ export const KEYWORD_CATEGORIES = {
       'clinic', 'diagnostic center', 'health center', 'wellness center',
       'health screening', 'body checkup', 'general checkup', 'full body checkup',
       'lab test', 'diagnostic test', 'blood test', 'health package',
-      'healthcare package', 'medical package', 'checkup package'
+      'healthcare package', 'medical package', 'checkup package',
+      // Additional healthcare promotional keywords
+      'empowering women\'s health', 'women\'s health', 'breast health',
+      'thermal screening', 'thermal screening device', 'thermal imaging',
+      'non-invasive', 'early detection', 'preventive health', 'preventive care',
+      'oncologists', 'orthopaedic', 'orthopaedic specialists', 'orthopaedic consultations',
+      'joint pain', 'stiffness', 'mobility concerns', 'pain-free',
+      'sharda group employees', 'sharda group community', 'immediate family members',
+      'exclusive privilege', 'healthcare privilege', 'special offer',
+      'ground floor', 'shardacare healthcity', 'team shardacare',
+      'camp highlights', 'event detail', 'venue', 'contact'
     ],
     phrases: [
       'limited time offer', 'special discount', 'buy now', 'save money',
@@ -347,9 +374,26 @@ export const KEYWORD_CATEGORIES = {
       'limited time offer', 'special discount',
       'save money', 'don\'t miss out', 'act now',
       'limited stock', 'while stocks last',
-      'terms and conditions apply', 'valid till stock lasts'
+      'terms and conditions apply', 'valid till stock lasts',
+      // Healthcare promotional phrases
+      'empowering women\'s health', 'free breast health screening camp',
+      'focused on supporting women\'s health', 'early detection and preventive care',
+      'camp highlights', 'free and fully confidential', 'one-on-one consultation',
+      'experienced oncologists', 'thermal screening device', 'thermal screening technology',
+      'safe and accurate detection', 'completely non-invasive', 'no touch, pain, or discomfort',
+      'thermal imaging', 'early signs of potential breast abnormalities',
+      'suitable for women of all age groups', 'take advantage of this initiative',
+      'make preventive health a priority', 'team shardacare healthcity',
+      'exclusive healthcare privilege', 'sharda group employees',
+      'flat 50% discount', '50% discount on orthopaedic consultations',
+      'special offer is available exclusively', 'immediate family members',
+      'expert orthopaedic specialists', 'move better and live pain-free',
+      'joint pain, stiffness, or mobility concerns', 'exclusive healthcare privilege for'
     ],
-    exclusionKeywords: ['placement drive', 'nptel course', 'hod notice', 'exam schedule'],
+    exclusionKeywords: [
+      'placement drive', 'nptel course', 'hod notice', 'exam schedule',
+      'canva', 'canva.com', 'engage.canva.com', 'product@engage.canva.com'
+    ],
     patterns: {
       senderDomains: [
         'shardacare.com', 'healthcity.com', 'promo.com', 'marketing.com',
@@ -357,7 +401,18 @@ export const KEYWORD_CATEGORIES = {
       ],
       senderNames: [
         'Promotions', 'Offers', 'Marketing Team', 'ShardaCare', 'HealthCity',
-        'Promotions Team', 'Marketing', 'Promotional'
+        'Promotions Team', 'Marketing', 'Promotional',
+        // Pattern matching for "'Promotions' via" senders
+        '\'Promotions\' via', '\'Promotions\' via UG Student Group',
+        '\'Promotions\' via Batch', 'Promotions via', 'Promotions via UG Student Group',
+        'UG Student Group', 'ShardaCare Team', 'Team ShardaCare', 'HealthCity Team'
+      ],
+      // Exclude specific sender domains/names that should not match Promotions
+      excludeDomains: [
+        'engage.canva.com', 'canva.com'
+      ],
+      excludeNames: [
+        'Canva', 'Canva Team', 'Canva Pro'
       ]
     }
   },
@@ -370,7 +425,11 @@ export const KEYWORD_CATEGORIES = {
       'workshop', 'seminar', 'conference', 'symposium', 'webinar', 'meetup',
       'competition', 'contest', 'hackathon', 'quiz', 'fest', 'festival',
       'cultural event', 'technical event', 'sports event', 'academic event',
-      'social event', 'community event', 'university event', 'campus activity'
+      'social event', 'community event', 'university event', 'campus activity',
+      'carnival', 'christmas', 'scholarship', 'helpdesk', 'advisor', 'convener',
+      'coordinator', 'registrar', 'speaker', 'employees', 'faculty', 'students',
+      'stalls', 'games', 'food', 'shopping', 'activities', 'performances',
+      'department', 'december', 'friday'
     ],
     secondaryKeywords: [
       'nss cell', 'volunteers', 'my bharat portal', 'nurses week',
@@ -389,7 +448,12 @@ export const KEYWORD_CATEGORIES = {
       'business plan', 'case study competition', 'mock interview',
       'placement workshop', 'skill development', 'training workshop',
       'leadership workshop', 'communication skills', 'soft skills',
-      'personality development', 'career guidance', 'counseling session'
+      'personality development', 'career guidance', 'counseling session',
+      'fire safety', 'awareness workshop', 'awareness camp', 'up scholarship',
+      'hr department', 'human resource department', 'dean students welfare',
+      'ncc unit', 'ncc cadets', 'armed forces flag day', 'campus safety',
+      'fire prevention', 'emergency response', 'emergency handling',
+      'sharda hospital', 'shardacare healthcity', 'medical wing'
     ],
     phrases: [
       'campus event', 'what\'s happening', 'campus announcement',
@@ -412,17 +476,38 @@ export const KEYWORD_CATEGORIES = {
       'register today', 'limited seats available',
       'first come first serve', 'registration mandatory',
       'all are welcome', 'open for all', 'free entry',
-      'refreshments will be provided', 'certificate will be provided'
+      'refreshments will be provided', 'certificate will be provided',
+      'christmas & new year carnival', 'fire safety awareness workshop',
+      'fire safety equipment', 'fire extinguishers', 'safe evacuation',
+      'emergency response', 'emergency handling', 'campus safety',
+      'two-day up scholarship helpdesk', 'scholarship application',
+      'scholarship helpdesk & awareness camp', 'up scholarship',
+      'fresh application', 'renewal application', 'form filling',
+      'document verification', 'eligibility checks', 'technical assistance',
+      'domicile certificate', 'category certificate', 'income certificate',
+      'aadhaar card', 'bank passbook', 'attendance sheet', 'exam cell',
+      'nodal officer', 'hr department organizing', 'human resource department',
+      'dean students welfare', 'dsw office', 'ncc unit organizing',
+      'armed forces flag day', 'chief human resources officer',
+      'learning & development', 'stall bookings', 'first-come first-serve',
+      'team building', 'cross-department interaction', 'employee & student participation',
+      'sparking joy', 'create enjoyable memories', 'art and craft',
+      'sports ground', 'opposite mandela hostel', 'block 4 ground',
+      'lawn in front of block-3', '19th dec 2025', '12th december 2025',
+      '11th & 12th december 2025'
     ],
     exclusionKeywords: ['placement drive', 'job opportunity', 'nptel course', 'exam schedule'],
     patterns: {
       senderDomains: [
         'sharda.ac.in', 'ug.sharda.ac.in', 'events.sharda.ac.in',
-        'dsw.sharda.ac.in', 'sgei.org'
+        'dsw.sharda.ac.in', 'sgei.org', 'batch2022-2023@ug.sharda.ac.in',
+        'ug.group@ug.sharda.ac.in'
       ],
       senderNames: [
         'What\'s Happening', 'Whats Happening', 'Events Team', 'DSW',
-        'Student Affairs', 'Event Coordinator', 'Campus Events'
+        'Student Affairs', 'Event Coordinator', 'Campus Events',
+        '\'What\'s Happening\' via Batch', '\'What\'s Happening\' via UG Student Group',
+        'Batch 2022-2023', 'UG Student Group'
       ]
     }
   },
@@ -434,6 +519,7 @@ export const KEYWORD_CATEGORIES = {
       'dr.', 'evaluation', 'project eval', 'attendance', 'exam',
       'assessment', 'panel members', 'compulsory', 'asst. prof.', 'assoc. prof.',
       'lecturer', 'instructor', 'faculty member', 'teaching faculty',
+      'su manager', 'manager', 'senior manager', 'academic manager',
       // Specific professor names from emails
       'nishant gupta', 'kanika singla', 'anubhava srivastava', 'kapil kumar',
       'dr. nishant gupta', 'dr. kanika singla', 'dr. anubhava srivastava', 'dr. kapil kumar'
@@ -481,10 +567,19 @@ export const KEYWORD_CATEGORIES = {
       'meet me during office hours', 'doubt clearing session',
       'for any queries contact', 'please revert'
     ],
-    exclusionKeywords: ['placement drive', 'job opportunity', 'nptel course', 'promotion offer'],
+    exclusionKeywords: [
+      'placement drive', 'job opportunity', 'nptel course', 'promotion offer',
+      // Exclude promotional healthcare emails
+      'promotions via', '\'promotions\' via', 'promotions via ug student group',
+      'shardacare', 'healthcity', 'healthcare privilege', 'exclusive healthcare',
+      'free screening camp', 'breast health screening', 'orthopaedic consultations',
+      '50% off', 'flat discount', 'special offer', 'healthcare offer',
+      'empowering women\'s health', 'free consultation', 'medical camp'
+    ],
     patterns: {
       senderDomains: [
-        'sharda.ac.in', 'ug.sharda.ac.in', 'cse.sharda.ac.in'
+        'sharda.ac.in', 'cse.sharda.ac.in'
+        // Note: ug.sharda.ac.in removed - it's used by Promotions category
       ],
       senderNames: [
         'Professor', 'Dr.', 'Assistant Professor', 'Associate Professor',
@@ -493,6 +588,27 @@ export const KEYWORD_CATEGORIES = {
         'Nishant Gupta', 'Kanika Singla', 'Anubhava Srivastava', 'Kapil Kumar',
         'Dr. Nishant Gupta', 'Dr. Kanika Singla', 'Dr. Anubhava Srivastava', 'Dr. Kapil Kumar',
         'nishant.gupta', 'kanika.singla', 'anubhava.srivastava', 'kapil.kumar'
+      ],
+      // Exclude promotional, event, and HOD senders from Professor category
+      excludeNames: [
+        '\'Promotions\' via', '\'Promotions\' via UG Student Group',
+        'Promotions via', 'Promotions via UG Student Group',
+        '\'What\'s Happening\' via', '\'What\'s Happening\' via Batch',
+        '\'What\'s Happening\' via UG Student Group',
+        'What\'s Happening via', 'Whats Happening via',
+        'UG Student Group', 'ShardaCare', 'HealthCity', 'Team ShardaCare',
+        'Batch 2022-2023', 'HOD CSE', 'HOD ECE', 'HOD ME', 'HOD CE', 'HOD EEE',
+        'HOD IT', 'HOD AE', 'HOD', 'Head of Department', 'Head of Dept',
+        'Department Head', 'Dept Head', 'HoD'
+      ],
+      excludeDomains: [
+        'ug.group@ug.sharda.ac.in', 'batch2022-2023@ug.sharda.ac.in',
+        'hod.cse@sharda.ac.in', 'hod.ece@sharda.ac.in', 'hod.me@sharda.ac.in',
+        'hod.ce@sharda.ac.in', 'hod.eee@sharda.ac.in', 'hod.it@sharda.ac.in',
+        'hod.ae@sharda.ac.in', 'hod.civil@sharda.ac.in', 'hod.chem@sharda.ac.in',
+        'hod.bt@sharda.ac.in', 'hod.biotech@sharda.ac.in', 'hod.mba@sharda.ac.in',
+        'hod.law@sharda.ac.in', 'hod.pharmacy@sharda.ac.in', 'hod.medical@sharda.ac.in',
+        'hod.nursing@sharda.ac.in', 'hod.physiotherapy@sharda.ac.in'
       ],
       // Match patterns like "Dr. Nishant Gupta (CSE Associate Professor)"
       namePatterns: [
@@ -520,7 +636,14 @@ export const KEYWORD_CATEGORIES = {
       'sign-in blocked', 'password changed', 'account recovery', 'security checkup',
       'two-factor authentication', '2-step verification', 'verification code',
       'device sign-in', 'new device', 'unrecognized device', 'login attempt',
-      'privacy reminder', 'security update', 'account access', 'suspicious sign-in'
+      'privacy reminder', 'security update', 'account access', 'suspicious sign-in',
+      // GitHub notifications
+      'github', 'github.com', 'secrets detected', 'valid secrets', 'security alert',
+      'repository', 'repo', 'github security', 'github support',
+      // GeeksforGeeks
+      'geeksforgeeks', 'geeks for geeks', 'gfg', 'geeksforgeeks.org',
+      // Canva
+      'canva', 'canva.com', 'templates', 'design', 'canva pro'
     ],
     secondaryKeywords: [
       // Generic system notifications
@@ -538,7 +661,15 @@ export const KEYWORD_CATEGORIES = {
       'privacy', 'update', 'reminder', 'attempt', 'recognized',
       'unrecognized', 'new', 'recent', 'activity', 'location',
       'ip address', 'browser', 'app', 'device', 'security code',
-      'backup code', 'recovery email', 'security question'
+      'backup code', 'recovery email', 'security question',
+      // GitHub related
+      'github', 'repository', 'repo', 'commit', 'pull request', 'issue',
+      'secrets', 'exposed secrets', 'valid secrets', 'secret detection',
+      // GeeksforGeeks related
+      'geeksforgeeks', 'gfg', 'coding', 'programming', 'course experience',
+      'testimonial', 'linkedin post', 'zomato voucher', 't-shirt',
+      // Canva related
+      'canva', 'templates', 'design', 'graphic design', 'canva pro'
     ],
     phrases: [
       'service now university', 'service-now.com', 'servicenow.com',
@@ -560,7 +691,17 @@ export const KEYWORD_CATEGORIES = {
       'review your account activity', 'check your account security',
       'someone tried to sign in', 'sign-in was blocked',
       'account access notification', 'security update for your account',
-      'google account security', 'gmail security notification'
+      'google account security', 'gmail security notification',
+      // GitHub notification phrases
+      'possible valid secrets detected', 'secrets detected in',
+      'github security alert', 'repository security', 'exposed secrets',
+      'please resolve these alerts', 'rotate and revoke',
+      // GeeksforGeeks phrases
+      'geeksforgeeks', 'share your experience', 'gfg t-shirt',
+      'zomato voucher', 'course experience', 'video testimonial',
+      // Canva phrases
+      'templates for your next design', 'new templates recommended',
+      'canva pro', 'canva templates'
     ],
     exclusionKeywords: [],
     patterns: {
@@ -572,7 +713,14 @@ export const KEYWORD_CATEGORIES = {
         'accounts.google.com', 'mail.google.com', 'gmail.com',
         'google.com', 'googlemail.com', 'no-reply@accounts.google.com',
         'noreply@accounts.google.com', 'security-noreply@google.com',
-        'accounts-noreply@google.com', 'google-noreply@google.com'
+        'accounts-noreply@google.com', 'google-noreply@google.com',
+        // GitHub domains
+        'github.com', 'githubusercontent.com', 'support@github.com',
+        'noreply@github.com', 'notifications@github.com',
+        // GeeksforGeeks domains
+        'geeksforgeeks.org', 'geeksforgeeks.com', 'no-reply@geeksforgeeks.org',
+        // Canva domains
+        'canva.com', 'engage.canva.com', 'product@engage.canva.com'
       ],
       senderNames: [
         'ServiceNow University', 'ServiceNow', 'nowlearning',
@@ -581,7 +729,13 @@ export const KEYWORD_CATEGORIES = {
         // Google security notification senders
         'Google', 'Google Account', 'Google Security', 'Gmail Security',
         'Google Account Security', 'Security Alert', 'Google Notifications',
-        'Account Security', 'Google Account Team', 'Security Team'
+        'Account Security', 'Google Account Team', 'Security Team',
+        // GitHub senders
+        'GitHub', 'GitHub Support', 'GitHub Security', 'GitHub Notifications',
+        // GeeksforGeeks senders
+        'GeeksforGeeks', 'Geeks for Geeks', 'GfG', 'GeeksforGeeks Team',
+        // Canva senders
+        'Canva', 'Canva Team', 'Canva Pro', 'Canva Design'
       ]
     }
   }

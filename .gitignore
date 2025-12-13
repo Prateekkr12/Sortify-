@@ -34,6 +34,10 @@ __pypackages__/
 .env.test.local
 .env.production.local
 .env.*.local
+.env.docker
+.env.production
+.env.development
+# Note: .env.example and env.example should be committed (they're templates)
 
 # Logs
 *.log

@@ -107,25 +107,23 @@ const matchSenderName = (from, category) => {
 }
 
 /**
- * Match email against category keywords and phrases
- * @param {string} subject - Email subject
- * @param {string} snippet - Email snippet/preview
+ * Match email against category keywords and phrases in body
+ * @param {string} body - Email body
  * @param {Object} category - Category with keywords
  * @returns {Object|null} - Match result or null
  */
-const matchKeywords = (subject, snippet, category) => {
+const matchBodyKeywords = (body, category) => {
   if (!category.keywords || category.keywords.length === 0) {
     return null
   }
   
-  // Combine subject and snippet for keyword matching
-  const text = `${subject} ${snippet}`
-  const keywordMatches = countKeywordMatches(text, category.keywords)
+  // Check body for keyword matching (subject is checked separately first)
+  const keywordMatches = countKeywordMatches(body || '', category.keywords)
   
   // Also check for phrase matches if classificationStrategy exists
   let phraseMatches = { count: 0, matchedPhrases: [], score: 0 }
   if (category.classificationStrategy?.bodyAnalysis?.phrases) {
-    phraseMatches = matchPhrases(text, category.classificationStrategy.bodyAnalysis.phrases)
+    phraseMatches = matchPhrases(body || '', category.classificationStrategy.bodyAnalysis.phrases)
   }
   
   const totalMatches = keywordMatches.count + phraseMatches.count
@@ -145,7 +143,7 @@ const matchKeywords = (subject, snippet, category) => {
     return {
       category: category.name,
       confidence,
-      method: phraseMatches.count > 0 ? 'keyword+phrase' : 'keyword',
+      method: phraseMatches.count > 0 ? 'body-keyword+phrase' : 'body-keyword',
       matchedKeywords: keywordMatches.matchedKeywords,
       matchedPhrases: phraseMatches.matchedPhrases,
       keywordScore: totalScore
@@ -157,12 +155,13 @@ const matchKeywords = (subject, snippet, category) => {
 
 /**
  * Check category for any match (domain, name, keyword, phrase, or specific sender)
+ * Note: Subject is checked separately before this function is called
  * @param {Object} email - Email data
  * @param {Object} category - Category to check
  * @returns {Object|null} - Best match or null
  */
 const checkCategoryMatch = (email, category) => {
-  const { subject = '', from = '', snippet = '' } = email
+  const { from = '', body = '' } = email
   const matches = []
   
   // Priority 1: Check for specific sender patterns (HOD, E-Zone, NPTEL, Professor, etc.)
@@ -190,10 +189,10 @@ const checkCategoryMatch = (email, category) => {
     matches.push(nameMatch)
   }
   
-  // Priority 4: Check keywords and phrases
-  const keywordMatch = matchKeywords(subject, snippet, category)
-  if (keywordMatch) {
-    matches.push(keywordMatch)
+  // Priority 4: Check body keywords and phrases (subject was already checked separately)
+  const bodyKeywordMatch = matchBodyKeywords(body, category)
+  if (bodyKeywordMatch) {
+    matches.push(bodyKeywordMatch)
   }
   
   // Return best match (highest confidence)
@@ -204,6 +203,44 @@ const checkCategoryMatch = (email, category) => {
   }
   
   return null
+}
+
+/**
+ * Check if subject contains category name keyword (highest priority check)
+ * @param {string} subject - Email subject
+ * @param {string} categoryName - Category name
+ * @returns {boolean} - True if subject contains category keyword
+ */
+const subjectContainsCategoryKeyword = (subject, categoryName) => {
+  if (!subject || !categoryName) return false
+  
+  const subjectLower = subject.toLowerCase()
+  
+  // Map category names to their keyword variations
+  const categoryKeywords = {
+    'HOD': ['hod'],
+    'NPTEL': ['nptel'],
+    'Professor': ['professor'],
+    'Placement': ['placement'],
+    'Promotions': ['promotions', 'promotion'],
+    'Whats happening': ['what\'s happening', 'whats happening'],
+    'E-Zone': ['e-zone', 'ezone'],
+    'Other': [] // Skip "Other" category
+  }
+  
+  const keywords = categoryKeywords[categoryName]
+  if (!keywords || keywords.length === 0) return false
+  
+  // Check if any keyword appears in subject (using word boundaries for better matching)
+  for (const keyword of keywords) {
+    // Use word boundary regex to match whole words only
+    const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    if (regex.test(subject)) {
+      return true
+    }
+  }
+  
+  return false
 }
 
 /**
@@ -230,10 +267,67 @@ export const classifyEmailPhase1 = async (email, userId) => {
       }
     }
     
+    // PRIORITY 0: Check if subject contains category name keyword (HIGHEST PRIORITY)
+    // This check happens before everything else - subject match takes precedence
+    for (const category of categories) {
+      if (subjectContainsCategoryKeyword(subject, category.name)) {
+        console.log(`✅ Phase 1 [SUBJECT KEYWORD]: Match - "${subject}" → ${category.name} (confidence: 0.98)`)
+        return {
+          label: category.name,
+          confidence: 0.98, // Very high confidence for explicit category name in subject
+          method: 'phase1-subject-category-keyword',
+          phase: 1,
+          matchedPattern: `Subject contains "${category.name}" keyword`,
+          matchedValue: subject
+        }
+      }
+    }
+    
     // Separate categories by priority
     const highPriorityCategories = categories.filter(cat => cat.priority === 'high')
     const normalPriorityCategories = categories.filter(cat => !cat.priority || cat.priority === 'normal')
     const lowPriorityCategories = categories.filter(cat => cat.priority === 'low')
+    
+    // Sort high-priority categories - prioritize "Promotions", "Whats happening", and "HOD" if sender matches
+    const fromLower = (from || '').toLowerCase()
+    const domain = extractSenderDomain(from) || ''
+    const domainLower = domain.toLowerCase()
+    
+    const isPromotionsSender = fromLower.includes("'promotions' via") || 
+                               fromLower.includes("promotions via") ||
+                               fromLower.includes("promotions' via")
+    const isWhatsHappeningSender = fromLower.includes("what's happening") || 
+                                   fromLower.includes("whats happening") ||
+                                   fromLower.includes("batch2022-2023")
+    const isHODSender = fromLower.includes('hod cse') || 
+                       fromLower.includes('hod ') ||
+                       domainLower.includes('hod.') ||
+                       fromLower.includes('head of department') ||
+                       fromLower.includes('head of dept')
+    
+    if (isPromotionsSender || isWhatsHappeningSender || isHODSender) {
+      highPriorityCategories.sort((a, b) => {
+        // Prioritize "Promotions" if sender matches
+        if (isPromotionsSender) {
+          if (a.name === 'Promotions' && b.name !== 'Promotions') return -1
+          if (a.name !== 'Promotions' && b.name === 'Promotions') return 1
+        }
+        // Prioritize "Whats happening" if sender matches
+        if (isWhatsHappeningSender) {
+          if (a.name === 'Whats happening' && b.name !== 'Whats happening') return -1
+          if (a.name !== 'Whats happening' && b.name === 'Whats happening') return 1
+        }
+        // Prioritize "HOD" if sender matches - BEFORE Professor
+        if (isHODSender) {
+          if (a.name === 'HOD' && b.name !== 'HOD') return -1
+          if (a.name !== 'HOD' && b.name === 'HOD') return 1
+        }
+        // Check HOD before Professor
+        if (a.name === 'HOD' && b.name === 'Professor') return -1
+        if (a.name === 'Professor' && b.name === 'HOD') return 1
+        return 0
+      })
+    }
     
     // Priority Level 1: Check high-priority categories (Promotions, Placement, NPTEL, etc.)
     for (const category of highPriorityCategories) {

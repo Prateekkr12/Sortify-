@@ -8,8 +8,8 @@ services:
     ports:
       - "27017:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: sortify
     volumes:
       - mongodb_data:/data/db
@@ -50,11 +50,11 @@ services:
       - NODE_ENV=production
       - MODEL_SERVICE_URL=http://model_service:8000
       - PORT=5000
-      - MONGO_URI=mongodb+srv://sachin-iam:Sachin123@cluster0.eypacgq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
-      - GOOGLE_CLIENT_ID=948082154353-negb3bcn21s4p0qlqllt0mvbr5mvpfec.apps.googleusercontent.com
-      - GOOGLE_CLIENT_SECRET=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
-      - JWT_SECRET=sortify-jwt-secret-key-2024-development
-      - CORS_ORIGIN=http://localhost:3000
+      - MONGO_URI=${MONGO_URI}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
     depends_on:
       mongodb:
         condition: service_healthy

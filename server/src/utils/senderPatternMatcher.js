@@ -259,9 +259,19 @@ export const matchSpecificSender = (from, categoryName) => {
   
   // HOD-specific patterns
   if (categoryName === 'HOD') {
-    if (lowerFrom.includes('hod.cse@sharda.ac.in') || 
-        lowerFrom.includes('hod cse') || 
-        senderName.toLowerCase().includes('hod')) {
+    // Check for HOD email domains (hod.xxx@sharda.ac.in)
+    if (domain.includes('hod.') && domain.includes('sharda.ac.in')) {
+      return { matched: true, confidence: 0.98, pattern: 'HOD domain' }
+    }
+    // Check for HOD in sender name or full from string
+    if (lowerFrom.includes('hod cse') || 
+        lowerFrom.includes('hod ece') ||
+        lowerFrom.includes('hod me') ||
+        lowerFrom.includes('hod ce') ||
+        lowerFrom.includes('hod ') ||
+        senderName.toLowerCase().includes('hod') ||
+        lowerFrom.includes('head of department') ||
+        lowerFrom.includes('head of dept')) {
       return { matched: true, confidence: 0.95, pattern: 'HOD sender' }
     }
   }
@@ -337,9 +347,20 @@ export const matchSpecificSender = (from, categoryName) => {
   
   // Promotions-specific patterns
   if (categoryName === 'Promotions') {
+    // Check for "'Promotions' via" pattern (with quotes)
     if (lowerFrom.includes("'promotions' via") || 
-        lowerFrom.includes('promotions via ug student group')) {
+        lowerFrom.includes('"promotions" via') ||
+        lowerFrom.includes("promotions' via")) {
+      return { matched: true, confidence: 0.95, pattern: 'Promotions sender' }
+    }
+    // Check for "Promotions via UG Student Group" pattern
+    if (lowerFrom.includes('promotions via ug student group') ||
+        lowerFrom.includes('promotions via')) {
       return { matched: true, confidence: 0.92, pattern: 'Promotions sender' }
+    }
+    // Check sender name for "Promotions"
+    if (senderName.toLowerCase().includes('promotions')) {
+      return { matched: true, confidence: 0.90, pattern: 'Promotions in sender name' }
     }
   }
   
