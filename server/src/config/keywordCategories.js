@@ -522,6 +522,7 @@ export const KEYWORD_CATEGORIES = {
       'su manager', 'manager', 'senior manager', 'academic manager',
       // Specific professor names from emails
       'nishant gupta', 'kanika singla', 'anubhava srivastava', 'kapil kumar',
+      'preeti sharma', 'dr. preeti sharma',
       'dr. nishant gupta', 'dr. kanika singla', 'dr. anubhava srivastava', 'dr. kapil kumar'
     ],
     secondaryKeywords: [
@@ -529,7 +530,8 @@ export const KEYWORD_CATEGORIES = {
       'interview scheduled', 'shortlisted students', 'dear faculty', 'dear students',
       'kanika singla', 'anubhava srivastava', 'nishant gupta', 'kapil kumar',
       'computer science engineering', 'set assistant professor',
-      'cse associate professor', 'sset assistant professor', 'check attendance',
+      'cse associate professor', 'sset assistant professor', 'sscse assistant professor',
+      'check attendance',
       'data uploaded', 'start your exam', 'link is active', 'personal interviews',
       'sd role', 'prepare the ppt', 'discussion with the guide', 'project submission',
       'assignment submission', 'lab submission', 'report submission', 'viva voce',
@@ -586,8 +588,10 @@ export const KEYWORD_CATEGORIES = {
         'Asst. Prof.', 'Assoc. Prof.', 'Faculty', 'Lecturer',
         // Specific professor names
         'Nishant Gupta', 'Kanika Singla', 'Anubhava Srivastava', 'Kapil Kumar',
+        'Preeti Sharma', 'Dr. Preeti Sharma',
         'Dr. Nishant Gupta', 'Dr. Kanika Singla', 'Dr. Anubhava Srivastava', 'Dr. Kapil Kumar',
-        'nishant.gupta', 'kanika.singla', 'anubhava.srivastava', 'kapil.kumar'
+        'nishant.gupta', 'kanika.singla', 'anubhava.srivastava', 'kapil.kumar',
+        'preeti.sharma', 'preeti.sharma5'
       ],
       // Exclude promotional, event, and HOD senders from Professor category
       excludeNames: [

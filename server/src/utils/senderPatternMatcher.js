@@ -298,7 +298,8 @@ export const matchSpecificSender = (from, categoryName) => {
   if (categoryName === 'Professor') {
     // Check for specific professor names first (highest confidence)
     const professorNames = [
-      'nishant gupta', 'kanika singla', 'anubhava srivastava', 'kapil kumar'
+      'nishant gupta', 'kanika singla', 'anubhava srivastava', 'kapil kumar',
+      'preeti sharma'
     ]
     const lowerName = senderName.toLowerCase()
     for (const profName of professorNames) {

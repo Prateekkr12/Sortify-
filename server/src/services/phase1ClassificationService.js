@@ -231,12 +231,22 @@ const subjectContainsCategoryKeyword = (subject, categoryName) => {
   const keywords = categoryKeywords[categoryName]
   if (!keywords || keywords.length === 0) return false
   
-  // Check if any keyword appears in subject (using word boundaries for better matching)
+  // Check if any keyword appears in subject
   for (const keyword of keywords) {
-    // Use word boundary regex to match whole words only
-    const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
-    if (regex.test(subject)) {
-      return true
+    // For multi-word phrases (containing spaces), use simple case-insensitive match
+    // For single words, use word boundaries to match whole words only
+    if (keyword.includes(' ')) {
+      // Multi-word phrase: use simple case-insensitive match
+      const regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      if (regex.test(subject)) {
+        return true
+      }
+    } else {
+      // Single word: use word boundaries for better matching
+      const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+      if (regex.test(subject)) {
+        return true
+      }
     }
   }
   
@@ -268,7 +278,8 @@ export const classifyEmailPhase1 = async (email, userId) => {
     }
     
     // PRIORITY 0: Check if subject contains category name keyword (HIGHEST PRIORITY)
-    // This check happens before everything else - subject match takes precedence
+    // Subject keywords take precedence over ALL sender patterns - if subject explicitly contains
+    // a category keyword (e.g., "what's happening"), classify to that category regardless of sender
     for (const category of categories) {
       if (subjectContainsCategoryKeyword(subject, category.name)) {
         console.log(`✅ Phase 1 [SUBJECT KEYWORD]: Match - "${subject}" → ${category.name} (confidence: 0.98)`)
@@ -279,6 +290,27 @@ export const classifyEmailPhase1 = async (email, userId) => {
           phase: 1,
           matchedPattern: `Subject contains "${category.name}" keyword`,
           matchedValue: subject
+        }
+      }
+    }
+    
+    // PRIORITY 1: Check for professor sender patterns (after subject keyword check)
+    // Professors sending emails should be classified as Professor if subject doesn't contain category keywords
+    const professorCategory = categories.find(cat => cat.name === 'Professor')
+    if (professorCategory) {
+      // Check if sender matches professor patterns
+      const professorMatch = checkCategoryMatch(email, professorCategory)
+      if (professorMatch && professorMatch.confidence >= 0.88 && 
+          (professorMatch.method === 'specific-sender' || professorMatch.method === 'sender-domain' || professorMatch.method === 'sender-name')) {
+        console.log(`✅ Phase 1 [PROFESSOR SENDER]: Match - "${subject}" → Professor (${professorMatch.confidence})`)
+        return {
+          label: 'Professor',
+          confidence: professorMatch.confidence,
+          method: `phase1-${professorMatch.method}`,
+          phase: 1,
+          matchedPattern: professorMatch.matchedPattern,
+          matchedValue: professorMatch.matchedValue,
+          priorityLevel: 'high'
         }
       }
     }
